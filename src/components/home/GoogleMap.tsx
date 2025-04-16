@@ -5,16 +5,17 @@ interface MapProps {
   center?: { lat: number; lng: number };
   zoom?: number;
   markers?: Array<{
-    id: string | number;
+    id?: string | number;
     position: { lat: number; lng: number };
     label?: string;
+    title?: string;
   }>;
   onMapLoad?: (map: google.maps.Map) => void;
   height?: string;
 }
 
-const defaultCenter = { lat: 40.7128, lng: -74.006 }; // New York City
-const defaultZoom = 12;
+const defaultCenter = { lat: 20.5937, lng: 78.9629 }; // Center of India
+const defaultZoom = 5;
 
 export default function GoogleMapComponent({
   center = defaultCenter,
@@ -88,11 +89,12 @@ export default function GoogleMapComponent({
           zoomControl: true,
         }}
       >
-        {markers.map((marker) => (
+        {markers.map((marker, index) => (
           <Marker
-            key={marker.id}
+            key={marker.id || index}
             position={marker.position}
             label={marker.label}
+            title={marker.title}
           />
         ))}
       </GoogleMap>

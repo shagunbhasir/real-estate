@@ -19,14 +19,65 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../../supabase/auth";
 import FeaturesSection from "../home/FeaturesSection";
-import MapSearch from "../home/MapSearch";
 import PropertyCard from "../home/PropertyCard";
-import SearchFilters from "../home/SearchFilters";
+import { useState, useEffect } from "react";
+import { supabase } from "../../../supabase/supabase";
+import LocationSearchWithProperties from "../home/LocationSearchWithProperties";
+
+interface Property {
+  id: string;
+  title: string;
+  address?: string;
+  price: number;
+  type?: "sale" | "rent";
+  beds?: number;
+  baths?: number;
+  sqft?: number;
+  imageUrl?: string;
+}
 
 export default function LandingPage() {
   const { user, signOut } = useAuth();
-
   const navigate = useNavigate();
+  const [featuredProperties, setFeaturedProperties] = useState<Property[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchFeaturedProperties();
+  }, []);
+
+  const fetchFeaturedProperties = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('properties')
+        .select('*')
+        .limit(3);
+
+      if (error) {
+        throw error;
+      }
+
+      if (data) {
+        setFeaturedProperties(data);
+      }
+    } catch (error) {
+      console.error('Error fetching featured properties:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Format currency
+  const formatPrice = (price: number, type?: string) => {
+    const formatted = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    }).format(price);
+    
+    return type === 'rent' ? `${formatted}/mo` : formatted;
+  };
 
   return (
     <div className="min-h-screen bg-white text-black">
@@ -41,14 +92,6 @@ export default function LandingPage() {
           <div className="flex items-center space-x-4">
             {user ? (
               <div className="flex items-center gap-4">
-                <Link to="/dashboard">
-                  <Button
-                    variant="ghost"
-                    className="text-sm font-light hover:text-gray-500"
-                  >
-                    Dashboard
-                  </Button>
-                </Link>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Avatar className="h-8 w-8 hover:cursor-pointer">
@@ -131,85 +174,29 @@ export default function LandingPage() {
               List your property <ChevronRight className="h-4 w-4" />
             </Link>
           </div>
-          <SearchFilters />
+        </section>
+
+        {/* Location Search with Properties Section */}
+        <section className="py-16 bg-[#f5f5f7]">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="text-center mb-12">
+              <h2 className="text-4xl font-semibold tracking-tight mb-2">
+                Find Properties by Location
+              </h2>
+              <p className="text-xl text-gray-500">
+                Search for properties in your desired location with powerful map-based search
+              </p>
+            </div>
+
+            <LocationSearchWithProperties />
+          </div>
         </section>
 
         {/* Features section */}
         <FeaturesSection />
 
-        {/* Map Search Section */}
-        <section className="py-16 bg-[#f5f5f7]">
-          <div className="max-w-7xl mx-auto px-4">
-            <div className="text-center mb-12">
-              <h2 className="text-4xl font-semibold tracking-tight mb-2">
-                Find Properties on the Map
-              </h2>
-              <p className="text-xl text-gray-500">
-                Explore neighborhoods and discover properties in your desired
-                location
-              </p>
-            </div>
-
-            <MapSearch />
-          </div>
-        </section>
-
         {/* Property Listings Preview */}
-        <section className="py-16 bg-white">
-          <div className="max-w-7xl mx-auto px-4">
-            <div className="text-center mb-12">
-              <h2 className="text-4xl font-semibold tracking-tight mb-2">
-                Featured Properties
-              </h2>
-              <p className="text-xl text-gray-500">
-                Handpicked properties for you to explore
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              <PropertyCard
-                type="sale"
-                title="Modern Family Home"
-                address="123 Park Avenue, New York"
-                price="$850,000"
-                beds={4}
-                baths={3}
-                sqft={2400}
-                imageUrl="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80"
-              />
-
-              <PropertyCard
-                type="rent"
-                title="Luxury Apartment"
-                address="456 Central Park, Manhattan"
-                price="$3,500/mo"
-                beds={2}
-                baths={2}
-                sqft={1200}
-                imageUrl="https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800&q=80"
-              />
-
-              <PropertyCard
-                type="sale"
-                title="Waterfront Villa"
-                address="789 Ocean Drive, Miami"
-                price="$1,250,000"
-                beds={5}
-                baths={4}
-                sqft={3500}
-                imageUrl="https://images.unsplash.com/photo-1580587771525-78b9dba3b914?w=800&q=80"
-              />
-            </div>
-
-            <div className="text-center mt-10">
-              <Link to="/browse-properties">
-                <Button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
-                  View All Properties
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </section>
+        
       </main>
 
       {/* How It Works Section */}
@@ -256,8 +243,8 @@ export default function LandingPage() {
               </div>
               <h3 className="text-xl font-semibold mb-3">Close the Deal</h3>
               <p className="text-gray-500">
-                Schedule visits, make offers, and complete transactions - all
-                without brokerage fees.
+                Schedule visits, negotiate, and finalize transactions securely
+                without broker fees.
               </p>
             </div>
           </div>
@@ -265,118 +252,90 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="bg-white py-12 text-xs text-gray-500 border-t border-gray-200">
-        <div className="max-w-[1200px] mx-auto px-4">
-          <div className="border-b border-gray-300 pb-8 grid grid-cols-1 md:grid-cols-4 gap-8">
+      <footer className="bg-white border-t border-gray-200 py-12">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             <div>
-              <h4 className="font-medium text-sm text-gray-900 mb-4">
-                ZeroBroker
-              </h4>
+              <h3 className="font-bold text-lg mb-4">ZeroBroker</h3>
+              <p className="text-gray-500 mb-4">
+                Connecting property owners and seekers directly, with zero
+                brokerage fees.
+              </p>
+              <div className="flex space-x-4"></div>
+            </div>
+            <div>
+              <h3 className="font-bold text-lg mb-4">Quick Links</h3>
               <ul className="space-y-2">
                 <li>
-                  <Link to="/" className="hover:underline">
-                    About Us
-                  </Link>
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
+                    Home
+                  </a>
                 </li>
                 <li>
-                  <Link to="/" className="hover:underline">
-                    How It Works
-                  </Link>
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
+                    Browse Properties
+                  </a>
                 </li>
                 <li>
-                  <Link to="/" className="hover:underline">
-                    Pricing
-                  </Link>
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
+                    List Your Property
+                  </a>
                 </li>
                 <li>
-                  <Link to="/" className="hover:underline">
-                    Testimonials
-                  </Link>
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
+                    Contact Us
+                  </a>
                 </li>
               </ul>
             </div>
             <div>
-              <h4 className="font-medium text-sm text-gray-900 mb-4">
-                Properties
-              </h4>
+              <h3 className="font-bold text-lg mb-4">Resources</h3>
               <ul className="space-y-2">
                 <li>
-                  <Link to="/" className="hover:underline">
-                    Buy
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/" className="hover:underline">
-                    Rent
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/" className="hover:underline">
-                    Sell
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/" className="hover:underline">
-                    Property Guides
-                  </Link>
-                </li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-medium text-sm text-gray-900 mb-4">
-                Resources
-              </h4>
-              <ul className="space-y-2">
-                <li>
-                  <Link to="/" className="hover:underline">
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
                     Help Center
-                  </Link>
+                  </a>
                 </li>
                 <li>
-                  <Link to="/" className="hover:underline">
-                    Real Estate Blog
-                  </Link>
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
+                    Blog
+                  </a>
                 </li>
                 <li>
-                  <Link to="/" className="hover:underline">
-                    Market Insights
-                  </Link>
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
+                    Guides
+                  </a>
                 </li>
                 <li>
-                  <Link to="/" className="hover:underline">
-                    Agent Directory
-                  </Link>
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
+                    FAQ
+                  </a>
                 </li>
               </ul>
             </div>
             <div>
-              <h4 className="font-medium text-sm text-gray-900 mb-4">Legal</h4>
+              <h3 className="font-bold text-lg mb-4">Legal</h3>
               <ul className="space-y-2">
                 <li>
-                  <Link to="/" className="hover:underline">
-                    Privacy Policy
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/" className="hover:underline">
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
                     Terms of Service
-                  </Link>
+                  </a>
                 </li>
                 <li>
-                  <Link to="/" className="hover:underline">
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
+                    Privacy Policy
+                  </a>
+                </li>
+                <li>
+                  <a href="#" className="text-gray-500 hover:text-blue-600">
                     Cookie Policy
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/" className="hover:underline">
-                    Fair Housing Policy
-                  </Link>
+                  </a>
                 </li>
               </ul>
             </div>
           </div>
-          <div className="py-4">
-            <p>Copyright © 2025 ZeroBroker. All rights reserved.</p>
+          <div className="mt-8 pt-8 border-t border-gray-200 text-center text-gray-500">
+            <p>&copy; {new Date().getFullYear()} ZeroBroker. All rights reserved.</p>
           </div>
         </div>
       </footer>

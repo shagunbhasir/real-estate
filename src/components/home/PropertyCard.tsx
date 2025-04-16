@@ -1,96 +1,176 @@
-import { Home, MapPin } from "lucide-react";
+import React, { useState, memo, useCallback } from "react";
+import { Link } from "react-router-dom";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Expand, Bed, Bath, Square, Heart } from "lucide-react";
 
-interface PropertyCardProps {
+// Import utility functions
+import { normalizeImageArray, getOptimizedImageUrl } from "@/utils/imageUtils";
+import { formatPriceDisplay } from "@/utils/filterUtils";
+import ImageGalleryModal from "../properties/ImageGalleryModal";
+
+export interface PropertyCardProps {
+  id?: string;
   type: "sale" | "rent";
   title: string;
   address: string;
-  price: string;
+  price: number | string;
   beds: number;
   baths: number;
   sqft: number;
   imageUrl: string;
+  allImages?: string[];
 }
 
-export default function PropertyCard({
-  type = "sale",
-  title = "Property Title",
-  address = "Property Address",
-  price = "$0",
-  beds = 0,
-  baths = 0,
-  sqft = 0,
-  imageUrl = "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80",
-}: PropertyCardProps) {
-  return (
-    <div className="bg-white rounded-xl shadow-md overflow-hidden transition-transform hover:scale-[1.02]">
-      <div className="relative h-48 w-full bg-gray-200">
-        <img
-          src={imageUrl}
-          alt={title}
-          className="w-full h-full object-cover"
-        />
-        <div
-          className={`absolute top-3 left-3 ${type === "sale" ? "bg-blue-600" : "bg-green-600"} text-white px-2 py-1 rounded-md text-sm font-medium`}
-        >
-          {type === "sale" ? "For Sale" : "For Rent"}
-        </div>
-      </div>
-      <div className="p-5">
-        <div className="flex justify-between items-start">
-          <div>
-            <h3 className="text-xl font-semibold mb-1">{title}</h3>
-            <div className="flex items-center text-gray-500 mb-2">
-              <MapPin className="h-4 w-4 mr-1" />
-              <span className="text-sm">{address}</span>
-            </div>
-          </div>
-          <p
-            className={`text-xl font-bold ${type === "sale" ? "text-blue-600" : "text-green-600"}`}
-          >
-            {price}
-          </p>
-        </div>
-        <div className="flex justify-between mt-4 pt-4 border-t border-gray-100 text-sm">
-          <div className="flex items-center">
-            <Home className="h-4 w-4 mr-1 text-gray-400" />
-            <span>{beds} beds</span>
-          </div>
-          <div className="flex items-center">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4 mr-1 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-              />
-            </svg>
-            <span>{baths} baths</span>
-          </div>
-          <div className="flex items-center">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-4 w-4 mr-1 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6z"
-              />
-            </svg>
-            <span>{sqft.toLocaleString()} sqft</span>
-          </div>
-        </div>
-      </div>
+// Memoized PropertyInfo component for better performance
+const PropertyInfo = memo(({ title, address }: { title: string; address: string }) => (
+  <div className="flex flex-col">
+    <h3 className="font-semibold text-lg truncate">{title}</h3>
+    <p className="text-gray-500 text-sm truncate">{address}</p>
+  </div>
+));
+
+PropertyInfo.displayName = 'PropertyInfo';
+
+// Memoized PropertyFeatures component
+const PropertyFeatures = memo(({ beds, baths, sqft }: { beds: number; baths: number; sqft: number }) => (
+  <div className="flex items-center justify-between text-sm text-gray-600 pt-3">
+    <div className="flex items-center">
+      <Bed className="h-4 w-4 mr-1" />
+      <span>{beds} bed{beds !== 1 ? 's' : ''}</span>
     </div>
+    <div className="flex items-center">
+      <Bath className="h-4 w-4 mr-1" />
+      <span>{baths} bath{baths !== 1 ? 's' : ''}</span>
+    </div>
+    <div className="flex items-center">
+      <Square className="h-4 w-4 mr-1" />
+      <span>{sqft} sqft</span>
+    </div>
+  </div>
+));
+
+PropertyFeatures.displayName = 'PropertyFeatures';
+
+// Main Property Card component
+const PropertyCard: React.FC<PropertyCardProps> = ({
+  id,
+  type,
+  title,
+  address,
+  price,
+  beds,
+  baths,
+  sqft,
+  imageUrl,
+  allImages = [],
+}) => {
+  const [showGallery, setShowGallery] = useState(false);
+  const [favorite, setFavorite] = useState(false);
+
+  // Normalize images array for consistency
+  const images = normalizeImageArray(allImages);
+  // Use first available image or provided imageUrl
+  const optimizedImageUrl = getOptimizedImageUrl(imageUrl || (images.length > 0 ? images[0] : undefined));
+
+  // Memoized event handlers
+  const handleImageClick = useCallback((e: React.MouseEvent) => {
+    // Only open gallery if there are multiple images
+    if (images.length > 1) {
+      e.preventDefault();
+      e.stopPropagation();
+      setShowGallery(true);
+    }
+  }, [images.length]);
+
+  const handleGalleryClose = useCallback(() => {
+    setShowGallery(false);
+  }, []);
+
+  const toggleFavorite = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setFavorite(prev => !prev);
+  }, []);
+
+  // Card content to display with or without Link wrapper
+  const CardContent = () => (
+    <Card className="overflow-hidden transition-all duration-300 hover:shadow-lg h-full">
+      <div className="relative">
+        {/* Property image */}
+        <div className="relative aspect-video overflow-hidden">
+          <img
+            src={optimizedImageUrl}
+            alt={title}
+            className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
+            loading="lazy"
+            onClick={handleImageClick}
+          />
+          
+          {images.length > 1 && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="absolute bottom-2 right-2 bg-black/60 text-white p-1 rounded-full"
+              onClick={handleImageClick}
+            >
+              <Expand className="h-4 w-4" />
+            </Button>
+          )}
+          
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`absolute top-2 right-2 rounded-full bg-white/70 hover:bg-white/90 ${favorite ? 'text-red-500' : 'text-gray-600'}`}
+            onClick={toggleFavorite}
+          >
+            <Heart className={`h-5 w-5 ${favorite ? 'fill-current' : ''}`} />
+          </Button>
+        </div>
+        
+        {/* Property type badge */}
+        <Badge 
+          className={`absolute top-2 left-2 ${type === 'sale' ? 'bg-blue-600' : 'bg-green-600'}`}
+        >
+          {type === 'sale' ? 'For Sale' : 'For Rent'}
+        </Badge>
+      </div>
+      
+      <div className="p-4">
+        {/* Property price */}
+        <div className="text-xl font-bold mb-2">
+          {typeof price === 'number' ? formatPriceDisplay(price) : price}
+        </div>
+        
+        {/* Property information */}
+        <PropertyInfo title={title} address={address} />
+        
+        {/* Property features */}
+        <PropertyFeatures beds={beds} baths={baths} sqft={sqft} />
+      </div>
+      
+      {/* Image gallery */}
+      {showGallery && (
+        <ImageGalleryModal
+          images={images}
+          isOpen={showGallery}
+          onClose={handleGalleryClose}
+        />
+      )}
+    </Card>
   );
-}
+
+  // Wrap card in link if id is provided, otherwise just show card
+  if (id) {
+    return (
+      <Link to={`/property/${id}`} className="block h-full">
+        <CardContent />
+      </Link>
+    );
+  }
+
+  return <CardContent />;
+};
+
+export default memo(PropertyCard);

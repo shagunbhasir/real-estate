@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../../supabase/supabase";
 import { useAuth } from "../../../supabase/auth";
@@ -21,6 +21,7 @@ import {
   Upload,
   X,
   Image as ImageIcon,
+  Phone,
 } from "lucide-react";
 import {
   Dialog,
@@ -45,19 +46,35 @@ export default function PropertyForm() {
     beds: "",
     baths: "",
     sqft: "",
-    imageUrl: "", // Will be set by upload
+    mobile_number: "",
+    image_url: "", // Changed from imageUrl to image_url to match database schema
+    images: [], // Array to store multiple image URLs
   });
 
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dragActive, setDragActive] = useState(false);
-  const [uploadedImage, setUploadedImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string>("");
+  const [uploadedImages, setUploadedImages] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [newPropertyId, setNewPropertyId] = useState<string>("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // State to check if current user is admin
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Check if the current user is an admin
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      // Check if admin state is in localStorage
+      const adminState = localStorage.getItem('adminState');
+      setIsAdmin(adminState === 'authenticated');
+    };
+    
+    checkAdminStatus();
+  }, []);
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -84,7 +101,9 @@ export default function PropertyForm() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      handleFile(files[0]);
+      // Convert FileList to array and process each file
+      const fileArray = Array.from(files);
+      fileArray.forEach(file => handleFile(file));
     }
   };
 
@@ -95,7 +114,9 @@ export default function PropertyForm() {
     setDragActive(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFile(e.dataTransfer.files[0]);
+      // Convert FileList to array and process each file
+      const fileArray = Array.from(e.dataTransfer.files);
+      fileArray.forEach(file => handleFile(file));
     }
   };
 
@@ -121,12 +142,13 @@ export default function PropertyForm() {
       return;
     }
 
-    setUploadedImage(file);
+    // Add to uploaded images array
+    setUploadedImages(prev => [...prev, file]);
 
     // Create preview URL
     const reader = new FileReader();
     reader.onloadend = () => {
-      setImagePreview(reader.result as string);
+      setImagePreviews(prev => [...prev, reader.result as string]);
     };
     reader.readAsDataURL(file);
   };
@@ -143,41 +165,67 @@ export default function PropertyForm() {
     }
   };
 
-  // Upload image to Supabase storage
-  const uploadImage = async (): Promise<string> => {
-    if (!uploadedImage) {
-      return "";
+  // Upload multiple images to Supabase storage
+  const uploadImages = async (): Promise<{ mainImageUrl: string, imageUrls: string[] }> => {
+    if (uploadedImages.length === 0) {
+      return {
+        mainImageUrl: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80",
+        imageUrls: []
+      };
     }
 
     try {
-      // Create a unique file name
-      const fileExt = uploadedImage.name.split(".").pop();
-      const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
-      const filePath = `property-images/${fileName}`;
+      const uploadedUrls: string[] = [];
+      
+      // Upload each image
+      for (let i = 0; i < uploadedImages.length; i++) {
+        const image = uploadedImages[i];
+        setUploadProgress(Math.round((i / uploadedImages.length) * 50)); // Update progress for each upload
+        
+        // Create a unique file name
+        const fileExt = image.name.split(".").pop();
+        const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}_${i}.${fileExt}`;
+        const filePath = `property-images/${fileName}`;
 
-      // Upload the file with more detailed error handling
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("properties")
-        .upload(filePath, uploadedImage, {
-          cacheControl: "3600",
-          upsert: true, // Changed to true to overwrite if file exists
-        });
+        // Upload the file with more detailed error handling
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from("properties")
+          .upload(filePath, image, {
+            cacheControl: "3600",
+            upsert: false, // Set to false to ensure unique uploads
+          });
 
-      if (uploadError) {
-        console.error("Upload error details:", uploadError);
-        throw uploadError;
+        if (uploadError) {
+          console.error("Upload error details:", uploadError);
+          throw uploadError;
+        }
+
+        // Get the public URL
+        const { data } = supabase.storage
+          .from("properties")
+          .getPublicUrl(filePath);
+
+        if (data?.publicUrl) {
+          uploadedUrls.push(data.publicUrl);
+        }
       }
 
-      // Get the public URL
-      const { data } = supabase.storage
-        .from("properties")
-        .getPublicUrl(filePath);
+      setUploadProgress(100); // Complete progress after all uploads
+      
+      console.log("All uploaded URLs:", uploadedUrls);
 
-      return data.publicUrl;
+      // Return the first image as the main image and all images as the array
+      return {
+        mainImageUrl: uploadedUrls[0] || "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80",
+        imageUrls: uploadedUrls
+      };
     } catch (error) {
-      console.error("Error uploading image:", error);
+      console.error("Error uploading images:", error);
       // Return default image URL instead of throwing error
-      return "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80";
+      return {
+        mainImageUrl: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80",
+        imageUrls: []
+      };
     }
   };
 
@@ -206,6 +254,11 @@ export default function PropertyForm() {
     } else if (isNaN(Number(formData.sqft)) || Number(formData.sqft) <= 0) {
       newErrors.sqft = "Square footage must be a positive number";
     }
+    if (!formData.mobile_number.trim()) {
+      newErrors.mobile_number = "Contact number is required";
+    } else if (!/^\d{10}$/.test(formData.mobile_number.replace(/[^0-9]/g, ''))) {
+      newErrors.mobile_number = "Please enter a valid 10-digit phone number";
+    }
     // Make image upload optional
     // if (!uploadedImage && !imagePreview) {
     //   newErrors.image = "Please upload a property image";
@@ -233,13 +286,17 @@ export default function PropertyForm() {
     setLoading(true);
 
     try {
-      // First upload the image if available
-      let imageUrl =
-        "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80"; // Default fallback
+      // First upload the images if available
+      let mainImageUrl = "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80"; // Default fallback
+      let imageUrls: string[] = [];
 
-      if (uploadedImage) {
+      if (uploadedImages.length > 0) {
         try {
-          imageUrl = await uploadImage();
+          const uploadResult = await uploadImages();
+          mainImageUrl = uploadResult.mainImageUrl;
+          imageUrls = uploadResult.imageUrls;
+          console.log("Images uploaded:", imageUrls.length, "images");
+          console.log("Image URLs to store:", imageUrls);
         } catch (uploadError) {
           console.error(
             "Image upload failed, using default image",
@@ -248,6 +305,16 @@ export default function PropertyForm() {
           // Continue with default image if upload fails
         }
       }
+
+      // Check if no images were uploaded successfully
+      if (imageUrls.length === 0) {
+        console.log("No images were uploaded successfully, using default");
+        imageUrls = [mainImageUrl];
+      }
+
+      // Make sure imageUrls is correct array format
+      const cleanImageUrls = imageUrls.filter(url => typeof url === 'string' && url.trim() !== '');
+      console.log("Final clean image URLs:", cleanImageUrls);
 
       // Then create the property listing
       const { data, error } = await supabase
@@ -262,8 +329,14 @@ export default function PropertyForm() {
             beds: Number(formData.beds),
             baths: Number(formData.baths),
             sqft: Number(formData.sqft),
-            imageUrl: imageUrl,
+            mobile_number: formData.mobile_number,
+            image_url: mainImageUrl, // The first image as the main image
+            images: cleanImageUrls, // Clean array of image URLs
             user_id: user.id,
+            // Set verification_status to 1 (verified) if the user is an admin
+            verification_status: isAdmin ? 1 : 0,
+            // Initialize views count
+            views_count: 0
           },
         ])
         .select();
@@ -273,6 +346,9 @@ export default function PropertyForm() {
         throw error;
       }
 
+      // Log the newly created property data to verify images were stored
+      console.log("Property created with data:", data);
+      
       if (data && data.length > 0) {
         setNewPropertyId(data[0].id);
         setShowSuccessDialog(true);
@@ -293,7 +369,12 @@ export default function PropertyForm() {
     setShowSuccessDialog(false);
 
     if (action === "thanks") {
-      navigate("/browse-properties");
+      // Redirect to admin panel if user is an admin, otherwise to browse properties
+      if (isAdmin) {
+        navigate("/admin/properties");
+      } else {
+        navigate("/browse-properties");
+      }
     } else {
       // Navigate to the property detail page
       navigate(`/property/${newPropertyId}`);
@@ -351,6 +432,44 @@ export default function PropertyForm() {
             )}
           </div>
 
+          <div>
+            <Label htmlFor="price">
+              Price {formData.type === "rent" && "(per month)"}
+            </Label>
+            <div className="relative">
+              <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+              <Input
+                id="price"
+                name="price"
+                value={formData.price}
+                onChange={handleChange}
+                placeholder="e.g. 250000"
+                className={`pl-10 ${errors.price ? "border-red-500" : ""}`}
+              />
+            </div>
+            {errors.price && (
+              <p className="text-red-500 text-sm mt-1">{errors.price}</p>
+            )}
+          </div>
+
+          <div>
+            <Label htmlFor="mobile_number">Contact Number</Label>
+            <div className="relative">
+              <Phone className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+              <Input
+                id="mobile_number"
+                name="mobile_number"
+                value={formData.mobile_number}
+                onChange={handleChange}
+                placeholder="e.g. 9876543210"
+                className={`pl-10 ${errors.mobile_number ? "border-red-500" : ""}`}
+              />
+            </div>
+            {errors.mobile_number && (
+              <p className="text-red-500 text-sm mt-1">{errors.mobile_number}</p>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="type">Listing Type</Label>
@@ -368,25 +487,6 @@ export default function PropertyForm() {
               </Select>
             </div>
 
-            <div>
-              <Label htmlFor="price">
-                Price {formData.type === "rent" && "(per month)"}
-              </Label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                <Input
-                  id="price"
-                  name="price"
-                  value={formData.price}
-                  onChange={handleChange}
-                  placeholder="e.g. 250000"
-                  className={`pl-10 ${errors.price ? "border-red-500" : ""}`}
-                />
-              </div>
-              {errors.price && (
-                <p className="text-red-500 text-sm mt-1">{errors.price}</p>
-              )}
-            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -440,7 +540,7 @@ export default function PropertyForm() {
           </div>
 
           <div>
-            <Label>Property Image</Label>
+            <Label>Property Images (Select Multiple)</Label>
             <div
               className={`mt-2 border-2 border-dashed rounded-lg p-6 transition-colors ${dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300"} ${errors.image ? "border-red-500" : ""}`}
               onDragEnter={handleDrag}
@@ -453,45 +553,84 @@ export default function PropertyForm() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
+                multiple // Allow multiple file selection
                 className="hidden"
                 onChange={handleFileChange}
               />
 
-              {!imagePreview ? (
+              {imagePreviews.length === 0 ? (
                 <div className="flex flex-col items-center justify-center text-center">
                   <ImageIcon className="h-12 w-12 text-gray-400 mb-3" />
                   <p className="text-sm font-medium text-gray-700 mb-1">
-                    Drag and drop your image here
+                    Drag and drop your images here
                   </p>
                   <p className="text-xs text-gray-500">
                     or click to browse files
                   </p>
                   <p className="text-xs text-gray-500 mt-2">
-                    JPEG, PNG, or GIF up to 5MB
+                    Select multiple images (JPEG, PNG, or GIF up to 5MB each)
                   </p>
                 </div>
               ) : (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setImagePreview("");
-                      setUploadedImage(null);
-                    }}
-                    className="absolute top-2 right-2 bg-gray-800 bg-opacity-70 rounded-full p-1 text-white hover:bg-opacity-100 transition-opacity"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                  <img
-                    src={imagePreview}
-                    alt="Property preview"
-                    className="w-full h-48 object-cover rounded-md"
-                  />
-                  <p className="text-xs text-gray-500 mt-2 text-center">
-                    {uploadedImage?.name} (
-                    {Math.round(uploadedImage?.size / 1024)} KB)
-                  </p>
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <p className="text-sm font-medium text-gray-700">
+                      {uploadedImages.length} {uploadedImages.length === 1 ? "image" : "images"} selected
+                    </p>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setImagePreviews([]);
+                        setUploadedImages([]);
+                      }}
+                    >
+                      Clear All
+                    </Button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    {imagePreviews.map((preview, index) => (
+                      <div key={index} className="relative">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Remove this specific image
+                            setImagePreviews(prev => prev.filter((_, i) => i !== index));
+                            setUploadedImages(prev => prev.filter((_, i) => i !== index));
+                          }}
+                          className="absolute top-2 right-2 bg-gray-800 bg-opacity-70 rounded-full p-1 text-white hover:bg-opacity-100 transition-opacity z-10"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                        <img
+                          src={preview}
+                          alt={`Property preview ${index + 1}`}
+                          className="w-full h-24 object-cover rounded-md"
+                        />
+                        <p className="text-xs text-gray-500 mt-1 truncate">
+                          {uploadedImages[index]?.name} ({Math.round(uploadedImages[index]?.size / 1024)} KB)
+                        </p>
+                      </div>
+                    ))}
+                    
+                    {/* Add more images button */}
+                    <div 
+                      className="border-2 border-dashed border-gray-300 rounded-md flex items-center justify-center h-24 cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                    >
+                      <div className="flex flex-col items-center">
+                        <Upload className="h-6 w-6 text-gray-400" />
+                        <span className="text-xs text-gray-500 mt-1">Add More</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -519,6 +658,16 @@ export default function PropertyForm() {
             <DialogTitle>Property Listed Successfully!</DialogTitle>
             <DialogDescription>
               Your property has been successfully added to our marketplace.
+              {isAdmin && (
+                <span className="block mt-2 font-medium text-green-600">
+                  The property has been automatically verified.
+                </span>
+              )}
+              {!isAdmin && (
+                <span className="block mt-2">
+                  Our team will verify the property shortly.
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="flex justify-center py-4">
@@ -545,7 +694,7 @@ export default function PropertyForm() {
               onClick={() => handleSuccessAction("thanks")}
               className="mb-2 sm:mb-0"
             >
-              Thanks, Go to Listings
+              {isAdmin ? "Return to Admin Panel" : "Thanks, Go to Listings"}
             </Button>
             <Button
               type="button"

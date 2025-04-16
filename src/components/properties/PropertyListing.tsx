@@ -14,7 +14,8 @@ interface Property {
   beds: number;
   baths: number;
   sqft: number;
-  imageUrl: string;
+  image_url: string; // Changed from imageUrl to image_url to match database schema
+  images?: string[]; // Array of additional images
   created_at: string;
   user_id: string;
 }
@@ -108,15 +109,16 @@ export default function PropertyListing() {
                 address={property.address}
                 price={
                   property.type === "sale"
-                    ? `$${property.price.toLocaleString()}`
-                    : `$${property.price.toLocaleString()}/mo`
+                    ? `₹${property.price.toLocaleString()}`
+                    : `₹${property.price.toLocaleString()}/mo`
                 }
                 beds={property.beds}
                 baths={property.baths}
                 sqft={property.sqft}
                 imageUrl={
-                  property.imageUrl ||
-                  "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80"
+                  property.image_url ||
+                  (property.images && property.images.length > 0 ? property.images[0] : 
+                  "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80")
                 }
               />
             </div>

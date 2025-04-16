@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase Connection Test</title>
+    <script type="module">
+        // Import the Supabase client from CDN
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.6/+esm';
+
+        // Get the Supabase URL and key from localStorage if available
+        let supabaseUrl = localStorage.getItem('supabaseUrl');
+        let supabaseKey = localStorage.getItem('supabaseKey');
+
+        // If not in localStorage, prompt the user
+        if (!supabaseUrl || !supabaseKey) {
+            // Try to extract from the main app if possible
+            try {
+                const appScript = document.createElement('script');
+                appScript.src = '/src/main.tsx';
+                appScript.type = 'module';
+                document.head.appendChild(appScript);
+            } catch (e) {
+                console.error("Couldn't load main app script:", e);
+            }
+
+            // Ask user for credentials if needed
+            supabaseUrl = prompt("Enter your Supabase URL (from .env or supabase.ts file):", "");
+            supabaseKey = prompt("Enter your Supabase Anon Key (from .env or supabase.ts file):", "");
+            
+            if (supabaseUrl && supabaseKey) {
+                localStorage.setItem('supabaseUrl', supabaseUrl);
+                localStorage.setItem('supabaseKey', supabaseKey);
+            }
+        }
+
+        async function testConnection() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<p>Testing connection...</p>';
+
+            try {
+                if (!supabaseUrl || !supabaseKey) {
+                    throw new Error('Supabase URL and key are required');
+                }
+
+                const supabase = createClient(supabaseUrl, supabaseKey);
+                
+                // Test connection with a simple query
+                const { data, error } = await supabase.from('users').select('count', { count: 'exact' }).limit(1);
+                
+                if (error) {
+                    throw error;
+                }
+                
+                resultDiv.innerHTML = `
+                    <div style="color: green; padding: 10px; border: 1px solid green; border-radius: 5px; margin-top: 10px;">
+                        <h3>✅ Connection Successful!</h3>
+                        <p>Successfully connected to Supabase backend and database.</p>
+                        <p>Response: ${JSON.stringify(data)}</p>
+                    </div>
+                `;
+            } catch (err) {
+                resultDiv.innerHTML = `
+                    <div style="color: red; padding: 10px; border: 1px solid red; border-radius: 5px; margin-top: 10px;">
+                        <h3>❌ Connection Failed</h3>
+                        <p>Error connecting to Supabase: ${err.message}</p>
+                        <p>Make sure:</p>
+                        <ul>
+                            <li>Your Supabase project is running</li>
+                            <li>Your URL and API key are correct</li>
+                            <li>Your network connection is working</li>
+                        </ul>
+                    </div>
+                `;
+                console.error('Error:', err);
+            }
+        }
+
+        window.testConnection = testConnection;
+    </script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        button {
+            background-color: #3ECF8E;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #38B77C;
+        }
+        .credentials {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        h1 {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>Supabase Connection Test</h1>
+    <p>This page will test if your application can connect to the Supabase backend and database.</p>
+    
+    <div class="credentials">
+        <p><strong>Current Credentials:</strong></p>
+        <p>URL: <span id="url-display"></span></p>
+        <p>Key: <span id="key-display"></span></p>
+        <button onclick="localStorage.removeItem('supabaseUrl'); localStorage.removeItem('supabaseKey'); location.reload();">Reset Credentials</button>
+    </div>
+    
+    <button onclick="testConnection()">Test Connection</button>
+    
+    <div id="result"></div>
+
+    <script>
+        // Display stored credentials (partially hidden for security)
+        const urlDisplay = document.getElementById('url-display');
+        const keyDisplay = document.getElementById('key-display');
+        
+        const storedUrl = localStorage.getItem('supabaseUrl');
+        const storedKey = localStorage.getItem('supabaseKey');
+        
+        if (storedUrl) {
+            urlDisplay.textContent = storedUrl.substring(0, 15) + '...' + storedUrl.substring(storedUrl.length - 10);
+        } else {
+            urlDisplay.textContent = 'Not set';
+        }
+        
+        if (storedKey) {
+            keyDisplay.textContent = storedKey.substring(0, 5) + '...' + storedKey.substring(storedKey.length - 5);
+        } else {
+            keyDisplay.textContent = 'Not set';
+        }
+    </script>
+</body>
+</html>

@@ -4,6 +4,9 @@ import App from "./App.tsx";
 import "./index.css";
 import { BrowserRouter } from "react-router-dom";
 
+// Import Supabase connection test (will run automatically on import)
+import "./supabase-test";
+
 import { TempoDevtools } from "tempo-devtools";
 TempoDevtools.init();
 

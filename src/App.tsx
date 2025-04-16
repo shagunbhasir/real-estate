@@ -3,15 +3,21 @@ import { Navigate, Route, Routes, useRoutes } from "react-router-dom";
 import routes from "tempo-routes";
 import LoginForm from "./components/auth/LoginForm";
 import SignUpForm from "./components/auth/SignUpForm";
-import Dashboard from "./components/pages/dashboard";
 import Success from "./components/pages/success";
 import Home from "./components/pages/home";
 import PropertyListing from "./components/properties/PropertyListing";
 import PropertyForm from "./components/properties/PropertyForm";
+import PropertyFormEditor from "./components/properties/PropertyFormEditor";
 import PropertyDetail from "./components/properties/PropertyDetail";
+import UserManagement from "./components/pages/UserManagement";
+import PropertyManagement from "./components/pages/PropertyManagement";
+import AdminDashboard from "./components/admin/AdminDashboard";
+import AdminLoginPage from "./components/admin/AdminLoginPage";
+import AdminSignUpPage from "./components/admin/AdminSignUpPage";
 import { AuthProvider, useAuth } from "../supabase/auth";
+import { AdminAuthProvider, useAdminAuth } from "../supabase/adminAuth";
 import { Toaster } from "./components/ui/toaster";
-import { LoadingScreen, LoadingSpinner } from "./components/ui/loading-spinner";
+import { LoadingScreen } from "./components/ui/loading-spinner";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -27,6 +33,22 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { admin, loading } = useAdminAuth();
+
+  if (loading) {
+    return <LoadingScreen text="Authenticating admin..." />;
+  }
+
+  if (!admin) {
+    return <Navigate to="/admin/login" />;
+  }
+
+  return <>{children}</>;
+}
+
+
+
 function AppRoutes() {
   return (
     <>
@@ -35,10 +57,18 @@ function AppRoutes() {
         <Route path="/login" element={<LoginForm />} />
         <Route path="/signup" element={<SignUpForm />} />
         <Route
-          path="/dashboard"
+          path="/user-management"
           element={
             <PrivateRoute>
-              <Dashboard />
+              <UserManagement />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/property-management"
+          element={
+            <PrivateRoute>
+              <PropertyManagement />
             </PrivateRoute>
           }
         />
@@ -53,6 +83,36 @@ function AppRoutes() {
             </PrivateRoute>
           }
         />
+        
+        {/* Property Edit Route */}
+        <Route
+          path="/property/edit/:propertyId"
+          element={
+            <PrivateRoute>
+              <PropertyFormEditor />
+            </PrivateRoute>
+          }
+        />
+        
+        {/* Admin Routes */}
+        <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route path="/admin/signup" element={<AdminSignUpPage />} />
+        <Route
+          path="/admin/dashboard"
+          element={
+            <AdminRoute>
+              <AdminDashboard />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/*"
+          element={
+            <AdminRoute>
+              <AdminDashboard />
+            </AdminRoute>
+          }
+        />
       </Routes>
       {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
     </>
@@ -62,10 +122,12 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <Suspense fallback={<LoadingScreen text="Loading application..." />}>
-        <AppRoutes />
-      </Suspense>
-      <Toaster />
+      <AdminAuthProvider>
+        <Suspense fallback={<LoadingScreen text="Loading application..." />}>
+          <AppRoutes />
+        </Suspense>
+        <Toaster />
+      </AdminAuthProvider>
     </AuthProvider>
   );
 }
