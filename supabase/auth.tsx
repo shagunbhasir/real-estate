@@ -6,7 +6,13 @@ type AuthContextType = {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName: string) => Promise<void>;
+  // Update signUp signature to include mobileNumber (optional)
+  signUp: (
+    email: string,
+    password: string,
+    fullName: string,
+    mobileNumber?: string
+  ) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -34,14 +40,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  // Update signUp function to accept and use mobileNumber
+  const signUp = async (
+    email: string,
+    password: string,
+    fullName: string,
+    mobileNumber?: string
+  ) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      // Add phone to user metadata if provided
       options: {
         data: {
           full_name: fullName,
           name: fullName.split(" ")[0], // Add first name as name
+          phone: mobileNumber, // Add phone number here
         },
       },
     });
@@ -51,12 +65,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     // Ensure user data is properly created in the public.users table
     if (data.user) {
       const { error: profileError } = await supabase.from("users").upsert({
-        id: data.user.id,
-        user_id: data.user.id,
+        id: data.user.id, // Use the user ID from auth as the primary key for users table
+        // user_id: data.user.id, // Remove this if 'id' is the primary key and references auth.users.id
         email: email,
         full_name: fullName,
         name: fullName.split(" ")[0],
-        token_identifier: email,
+        phone: mobileNumber, // Add phone number here
+        // token_identifier: email, // This seems redundant if email is already stored
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
@@ -99,7 +114,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (createError)
           console.error(
             "Error creating user profile during sign in:",
-            createError,
+            createError
           );
       }
     }

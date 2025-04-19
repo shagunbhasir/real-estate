@@ -11,21 +11,21 @@ CREATE OR REPLACE FUNCTION create_admin(
   admin_email TEXT,
   admin_name TEXT,
   admin_password TEXT,
-  admin_role TEXT,
+  -- admin_role TEXT, -- Removed role
   admin_status TEXT
 )
 RETURNS UUID AS $$
 DECLARE
   new_admin_id UUID;
 BEGIN
-  -- Check if the current user is a super admin
+  -- Check if the current user is an admin (simplified check without role)
   IF NOT EXISTS (
     SELECT 1 FROM admins 
     WHERE id = auth.uid() 
-    AND role = 'super_admin' 
+    -- AND role = 'super_admin' -- Removed role check
     AND status = 'active'
   ) THEN
-    RAISE EXCEPTION 'Only super admins can create new admin accounts';
+    RAISE EXCEPTION 'Only active admins can create new admin accounts'; -- Adjusted message
   END IF;
 
   -- Insert the new admin
@@ -33,7 +33,7 @@ BEGIN
     email,
     name,
     password_hash,
-    role,
+    -- role, -- Removed role
     status,
     created_at,
     updated_at
@@ -41,7 +41,7 @@ BEGIN
     admin_email,
     admin_name,
     crypt(admin_password, gen_salt('bf')),
-    admin_role,
+    -- admin_role, -- Removed role
     admin_status,
     NOW(),
     NOW()
@@ -57,19 +57,19 @@ CREATE OR REPLACE FUNCTION update_admin_with_password(
   admin_id UUID,
   admin_name TEXT,
   admin_password TEXT,
-  admin_role TEXT,
+  -- admin_role TEXT, -- Removed role
   admin_status TEXT
 )
 RETURNS BOOLEAN AS $$
 BEGIN
-  -- Check if the current user is a super admin
+  -- Check if the current user is an admin (simplified check without role)
   IF NOT EXISTS (
     SELECT 1 FROM admins 
     WHERE id = auth.uid() 
-    AND role = 'super_admin' 
+    -- AND role = 'super_admin' -- Removed role check
     AND status = 'active'
   ) THEN
-    RAISE EXCEPTION 'Only super admins can update admin accounts';
+    RAISE EXCEPTION 'Only active admins can update admin accounts'; -- Adjusted message
   END IF;
 
   -- Update the admin with new password
@@ -77,11 +77,11 @@ BEGIN
   SET
     name = admin_name,
     password_hash = crypt(admin_password, gen_salt('bf')),
-    role = admin_role,
+    -- role = admin_role, -- Removed role
     status = admin_status,
     updated_at = NOW()
   WHERE id = admin_id;
 
   RETURN FOUND;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER; 
+$$ LANGUAGE plpgsql SECURITY DEFINER;

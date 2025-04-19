@@ -1,4 +1,10 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  ReactNode,
+} from "react";
 import { supabase } from "./supabase";
 
 interface Admin {
@@ -16,7 +22,9 @@ interface AdminAuthContextType {
   adminSignOut: () => Promise<void>;
 }
 
-const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
+const AdminAuthContext = createContext<AdminAuthContextType | undefined>(
+  undefined
+);
 
 export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const [admin, setAdmin] = useState<Admin | null>(null);
@@ -30,7 +38,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         if (adminData) {
           const parsedAdmin = JSON.parse(adminData);
           const sessionExpiry = localStorage.getItem("adminSessionExpiry");
-          
+
           if (sessionExpiry && new Date(sessionExpiry) > new Date()) {
             // Verify admin still exists in database
             const { data, error } = await supabase
@@ -38,7 +46,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
               .select("*")
               .eq("id", parsedAdmin.id)
               .single();
-              
+
             if (error || !data) {
               // Admin no longer exists or error occurred
               localStorage.removeItem("admin");
@@ -67,15 +75,11 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     checkAdminSession();
   }, []);
 
-  const adminSignUp = async (
-    email: string,
-    password: string
-  ) => {
+  const adminSignUp = async (email: string, password: string) => {
     try {
       const { data, error } = await supabase.rpc("create_admin", {
         admin_email: email,
         admin_password: password,
- 
       });
 
       if (error) throw error;
@@ -88,54 +92,87 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Simplified adminSignIn using verify_password RPC + separate fetch
   const adminSignIn = async (email: string, password: string) => {
     console.log("Attempting admin sign in for email:", email);
     try {
-      console.log("Calling Supabase RPC: get_admin_by_credentials");
-      const { data, error } = await supabase.rpc("get_admin_by_credentials", {
-        admin_email: email,
-        admin_password: password,
-      });
-
-      console.log("RPC response - data:", data);
-      console.log("RPC response - error:", error);
-
-      if (error) {
-        console.error("Supabase RPC error during sign in:", error);
-        throw error; // Re-throw the original Supabase error
-      }
-
-      if (data) {
-        console.log("Admin credentials verified. Admin data:", data);
-        // Update last login time
-        try {
-          console.log("Updating last login time for admin ID:", data.id);
-          await supabase
-            .from("admins")
-            .update({ last_login: new Date().toISOString() })
-            .eq("id", data.id);
-          console.log("Last login time updated successfully.");
-        } catch (updateError) {
-          console.error("Failed to update last login time:", updateError);
-          // Continue with login even if last login update fails
+      // Step 1: Verify credentials using verify_password RPC
+      console.log("Calling Supabase RPC: verify_password");
+      const { data: verifiedAdminId, error: verifyError } = await supabase.rpc(
+        "verify_password",
+        {
+          p_email: email,
+          p_password: password,
         }
+      );
 
-        // Set session expiry to 24 hours from now
-        const sessionExpiry = new Date();
-        sessionExpiry.setHours(sessionExpiry.getHours() + 24);
-        console.log("Setting session expiry:", sessionExpiry.toISOString());
+      console.log(
+        "verify_password RPC response - verifiedAdminId:",
+        verifiedAdminId
+      );
+      console.log("verify_password RPC response - error:", verifyError);
 
-        // Store admin data and session expiry
-        localStorage.setItem("admin", JSON.stringify(data));
-        localStorage.setItem("adminSessionExpiry", sessionExpiry.toISOString());
-        setAdmin(data);
-        console.log("Admin session stored in local storage and state updated.");
-      } else {
-        console.warn("Admin credentials invalid or no admin found.");
-        throw new Error("Invalid credentials or admin not found");
+      if (verifyError) {
+        console.error(
+          "Supabase RPC error during password verification:",
+          verifyError
+        );
+        throw verifyError; // Re-throw the original Supabase error
       }
+
+      // verify_password returns UUID on success, null on failure
+      if (!verifiedAdminId) {
+        console.warn(
+          "Admin credentials invalid (verify_password returned null)."
+        );
+        throw new Error("Invalid credentials");
+      }
+
+      console.log("Password verified. Admin ID:", verifiedAdminId);
+
+      // Step 2: Fetch full admin details using the verified ID
+      console.log(
+        "Fetching admin details from 'admins' table for ID:",
+        verifiedAdminId
+      );
+      const { data: adminDetails, error: fetchError } = await supabase
+        .from("admins")
+        .select("id, email, name, created_at, last_login") // Select desired fields
+        .eq("id", verifiedAdminId)
+        .single(); // Expecting only one row
+
+      console.log("Fetch admin details response - adminDetails:", adminDetails);
+      console.log("Fetch admin details response - error:", fetchError);
+
+      if (fetchError) {
+        console.error(
+          "Error fetching admin details after verification:",
+          fetchError
+        );
+        throw new Error("Could not fetch admin details after login.");
+      }
+
+      if (!adminDetails) {
+        console.error(
+          "Admin details not found for verified ID:",
+          verifiedAdminId
+        );
+        throw new Error("Admin record not found after verification.");
+      }
+
+      console.log("Successfully fetched admin details:", adminDetails);
+
+      // Step 3: Store session (verify_password already updated last_login)
+      const sessionExpiry = new Date();
+      sessionExpiry.setHours(sessionExpiry.getHours() + 24); // 24-hour expiry
+      console.log("Setting session expiry:", sessionExpiry.toISOString());
+
+      localStorage.setItem("admin", JSON.stringify(adminDetails)); // Store the fetched object
+      localStorage.setItem("adminSessionExpiry", sessionExpiry.toISOString());
+      setAdmin(adminDetails as Admin); // Set state with the fetched object (cast if needed)
+      console.log("Admin session stored in local storage and state updated.");
     } catch (error) {
-      console.error("Error during admin sign in process:", error);
+      console.error("Error during simplified admin sign in process:", error);
       // Ensure admin state is null if sign-in fails
       setAdmin(null);
       localStorage.removeItem("admin");

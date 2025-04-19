@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../../../supabase/supabase";
-import { useAuth } from "../../../supabase/auth";
+// Remove useAuth if not needed for standard user auth here, or keep if mixed use
+// import { useAuth } from "../../../supabase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,10 +34,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+// TODO: Import or implement a function to get the current admin ID from session/storage
+// import { getAdminIdFromSession } from '@/path/to/authUtils';
+
 export default function PropertyFormEditor() {
-  const { user } = useAuth();
+  // const { user } = useAuth(); // Remove or keep based on whether non-admins can edit
   const navigate = useNavigate();
-  const { propertyId } = useParams();
+  const { propertyId } = useParams<{ propertyId: string }>(); // Add type hint
   const { toast } = useToast();
 
   const [formData, setFormData] = useState({
@@ -62,40 +66,114 @@ export default function PropertyFormEditor() {
   const [existingImages, setExistingImages] = useState<string[]>([]);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [currentAdminId, setCurrentAdminId] = useState<string | null>(null); // State for admin ID
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch property data when component mounts
+  // Get Admin ID from localStorage, checking expiry (matching adminAuth.tsx)
+  const getAdminId = () => {
+    const adminDataString = localStorage.getItem("admin");
+    const sessionExpiryString = localStorage.getItem("adminSessionExpiry");
+
+    if (adminDataString && sessionExpiryString) {
+      const expiryDate = new Date(sessionExpiryString);
+      if (expiryDate > new Date()) {
+        // Session is valid
+        try {
+          const adminData = JSON.parse(adminDataString);
+          if (adminData && adminData.id) {
+            console.log(
+              "Retrieved valid admin ID from localStorage ('admin' key):",
+              adminData.id
+            );
+            return adminData.id; // Return the ID from the parsed object
+          } else {
+            console.error(
+              "Parsed admin data from localStorage is missing 'id'."
+            );
+            localStorage.removeItem("admin"); // Clear invalid data
+            localStorage.removeItem("adminSessionExpiry");
+            return null;
+          }
+        } catch (e) {
+          console.error("Failed to parse admin data from localStorage:", e);
+          localStorage.removeItem("admin"); // Clear corrupted data
+          localStorage.removeItem("adminSessionExpiry");
+          return null;
+        }
+      } else {
+        // Session expired
+        console.log("Admin session found but expired. Clearing.");
+        localStorage.removeItem("admin");
+        localStorage.removeItem("adminSessionExpiry");
+        return null;
+      }
+    } else {
+      // No session found
+      console.log(
+        "No admin session found in localStorage ('admin' or 'adminSessionExpiry' key missing)."
+      );
+      return null;
+    }
+  };
+
+  // Fetch admin ID and property data when component mounts
   useEffect(() => {
+    // Get Admin ID first
+    const adminId = getAdminId();
+    if (adminId) {
+      setCurrentAdminId(adminId);
+    } else {
+      console.error("Admin ID not found. Cannot edit property.");
+      toast({
+        title: "Authentication Error",
+        description: "Admin session not found. Please log in again.",
+        variant: "destructive",
+      });
+      setFetchLoading(false); // Stop loading as we can't proceed
+      // Optionally redirect: navigate('/admin/login');
+      return; // Stop execution if no admin ID
+    }
+
     const fetchPropertyData = async () => {
       if (!propertyId) return;
 
       try {
         setFetchLoading(true);
+        // Fetching initial data can still use select if RLS allows viewing,
+        // or switch to an admin_get_property_by_id RPC if needed.
+        // Let's assume SELECT is okay for now based on existing RLS.
         const { data, error } = await supabase
           .from("properties")
           .select("*")
           .eq("id", propertyId)
           .single();
 
-        if (error) throw error;
+        if (error) {
+          console.error("Error fetching property data (direct select):", error);
+          // If direct select fails due to RLS, you might need an admin RPC for fetching too.
+          // Example: await supabase.rpc('admin_get_property_by_id', { p_requesting_admin_id: adminId, p_property_id: propertyId });
+          throw error;
+        }
 
         if (data) {
           console.log("Fetched property data:", data);
           console.log("Original images array:", data.images);
-          
+
           // Ensure images is a proper array
           let imagesArray = [];
           if (data.images) {
             if (Array.isArray(data.images)) {
-              imagesArray = data.images.filter(img => img && typeof img === 'string' && img.trim() !== '');
-            } else if (typeof data.images === 'string') {
+              imagesArray = data.images.filter(
+                (img) => img && typeof img === "string" && img.trim() !== ""
+              );
+            } else if (typeof data.images === "string") {
               imagesArray = [data.images];
             }
           }
-          
+
           console.log("Processed images array:", imagesArray);
-          
+
           // Convert numeric values to strings for form inputs
           setFormData({
             title: data.title || "",
@@ -113,11 +191,13 @@ export default function PropertyFormEditor() {
 
           // Set existing images for display
           const mainImage = data.image_url || "";
-          
+
           // Create a combined array of all images without duplicates
-          const allImages = [...new Set([mainImage, ...imagesArray].filter(Boolean))];
+          const allImages = [
+            ...new Set([mainImage, ...imagesArray].filter(Boolean)),
+          ];
           console.log("Combined image array:", allImages);
-          
+
           setExistingImages(allImages);
           setImagePreviews(allImages);
         }
@@ -139,7 +219,7 @@ export default function PropertyFormEditor() {
   const handleChange = (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >,
+    >
   ) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
@@ -171,7 +251,7 @@ export default function PropertyFormEditor() {
   // Process a single file upload
   const handleFile = (file: File) => {
     // Basic validation
-    if (!file.type.match('image.*')) {
+    if (!file.type.match("image.*")) {
       toast({
         title: "Invalid file type",
         description: "Please upload image files only (JPG, PNG, etc.)",
@@ -180,7 +260,8 @@ export default function PropertyFormEditor() {
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) { // 5MB limit
+    if (file.size > 5 * 1024 * 1024) {
+      // 5MB limit
       toast({
         title: "File too large",
         description: "Image files must be less than 5MB",
@@ -190,11 +271,11 @@ export default function PropertyFormEditor() {
     }
 
     // Add file to uploaded images array
-    setUploadedImages(prev => [...prev, file]);
+    setUploadedImages((prev) => [...prev, file]);
 
     // Create preview URL
     const fileUrl = URL.createObjectURL(file);
-    setImagePreviews(prev => [...prev, fileUrl]);
+    setImagePreviews((prev) => [...prev, fileUrl]);
   };
 
   // Handle file input change
@@ -203,7 +284,7 @@ export default function PropertyFormEditor() {
     if (files && files.length > 0) {
       // Convert FileList to array and process each file
       const fileArray = Array.from(files);
-      fileArray.forEach(file => handleFile(file));
+      fileArray.forEach((file) => handleFile(file));
     }
   };
 
@@ -216,7 +297,7 @@ export default function PropertyFormEditor() {
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       // Convert FileList to array and process each file
       const fileArray = Array.from(e.dataTransfer.files);
-      fileArray.forEach(file => handleFile(file));
+      fileArray.forEach((file) => handleFile(file));
     }
   };
 
@@ -228,7 +309,7 @@ export default function PropertyFormEditor() {
       const updatedExisting = [...existingImages];
       updatedExisting.splice(index, 1);
       setExistingImages(updatedExisting);
-      
+
       // Also update previews
       const updatedPreviews = [...imagePreviews];
       updatedPreviews.splice(index, 1);
@@ -236,12 +317,12 @@ export default function PropertyFormEditor() {
     } else {
       // It's a new upload
       const adjustedIndex = index - existingImages.length;
-      
+
       // Remove from uploaded images
       const updatedUploads = [...uploadedImages];
       updatedUploads.splice(adjustedIndex, 1);
       setUploadedImages(updatedUploads);
-      
+
       // Remove from previews
       const updatedPreviews = [...imagePreviews];
       updatedPreviews.splice(index, 1);
@@ -252,55 +333,62 @@ export default function PropertyFormEditor() {
   // Upload all images to Supabase storage
   const uploadImages = async () => {
     if (uploadedImages.length === 0 && existingImages.length === 0) {
-      return { 
-        mainImageUrl: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80", 
-        imageUrls: [] 
+      return {
+        mainImageUrl:
+          "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80",
+        imageUrls: [],
       };
     }
 
     let progress = 0;
     const increment = 100 / (uploadedImages.length || 1);
     const imageUrls: string[] = [...existingImages]; // Start with existing images
-    
+
     try {
       // Only upload new images
       for (let i = 0; i < uploadedImages.length; i++) {
         const file = uploadedImages[i];
-        // Create a unique file path
-        const fileExt = file.name.split('.').pop();
-        const filePath = `${user?.id || 'anonymous'}/${Date.now()}-${Math.random().toString(36).substring(2)}-${i}.${fileExt}`;
-        
+        // Create a unique file path - use adminId or a generic path if user is null
+        const fileExt = file.name.split(".").pop();
+        const userIdForPath = currentAdminId || "admin-uploads"; // Use admin ID or fallback
+        const filePath = `${userIdForPath}/${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2)}-${i}.${fileExt}`;
+
         // Upload the file
         const { error: uploadError } = await supabase.storage
-          .from('properties')
+          .from("properties")
           .upload(filePath, file, {
-            upsert: false // Ensure we don't overwrite existing files
+            upsert: false, // Ensure we don't overwrite existing files
           });
-          
+
         if (uploadError) {
           console.error("Upload error:", uploadError);
           throw uploadError;
         }
-        
+
         // Get the public URL
         const { data } = supabase.storage
-          .from('properties')
+          .from("properties")
           .getPublicUrl(filePath);
-          
+
         if (data?.publicUrl) {
           imageUrls.push(data.publicUrl);
         }
-        
+
         // Update progress
         progress += increment;
         setUploadProgress(Math.min(Math.round(progress), 100));
       }
-      
+
       console.log("Final image URLs to store:", imageUrls);
-      
+
       // Set the main image (first one) and return all URLs
-      const mainImageUrl = imageUrls.length > 0 ? imageUrls[0] : "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80";
-      
+      const mainImageUrl =
+        imageUrls.length > 0
+          ? imageUrls[0]
+          : "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800&q=80";
+
       return { mainImageUrl, imageUrls };
     } catch (error) {
       console.error("Error uploading images:", error);
@@ -311,81 +399,109 @@ export default function PropertyFormEditor() {
   // Validate form data
   const validateForm = () => {
     const errors: Record<string, string> = {};
-    
+
     if (!formData.title.trim()) {
       errors.title = "Title is required";
     }
-    
+
     if (!formData.description.trim()) {
       errors.description = "Description is required";
     }
-    
+
     if (!formData.address.trim()) {
       errors.address = "Address is required";
     }
-    
+
     // Handle numeric fields properly
     const price = Number(formData.price);
     if (isNaN(price) || price <= 0) {
       errors.price = "Price must be greater than 0";
     }
-    
+
     if (!formData.type) {
       errors.type = "Property type is required";
     }
-    
+
     const beds = Number(formData.beds);
     if (isNaN(beds) || beds <= 0) {
       errors.beds = "Number of beds is required";
     }
-    
+
     const baths = Number(formData.baths);
     if (isNaN(baths) || baths <= 0) {
       errors.baths = "Number of baths is required";
     }
-    
+
     const sqft = Number(formData.sqft);
     if (isNaN(sqft) || sqft <= 0) {
       errors.sqft = "Square footage is required";
     }
-    
+
     // Handle mobile_number validation - only validate if it's provided and is a string
-    if (formData.mobile_number && typeof formData.mobile_number === 'string') {
+    if (formData.mobile_number && typeof formData.mobile_number === "string") {
       const trimmedMobile = formData.mobile_number.trim();
-      if (trimmedMobile !== '' && !/^\d{10}$/.test(trimmedMobile)) {
+      if (trimmedMobile !== "" && !/^\d{10}$/.test(trimmedMobile)) {
         errors.mobile_number = "Mobile number must be 10 digits";
       }
     }
-    
+
     setErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  // Handle form submission
+  // Handle form submission using RPC
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    if (!currentAdminId) {
+      toast({
+        title: "Error",
+        description: "Admin session not found. Cannot update.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!propertyId) {
+      toast({
+        title: "Error",
+        description: "Property ID is missing.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!validateForm()) {
       return;
     }
-    
+
     try {
       setLoading(true);
-      
-      // Upload new images if any
-      let imageUrls = [...formData.images];
+
+      // --- Image Upload Logic (mostly unchanged) ---
+      let finalImageUrls: string[] = [...existingImages]; // Start with existing images that weren't removed
       if (uploadedImages.length > 0) {
-        const uploadedResult = await uploadImages();
-        imageUrls = [...imageUrls, ...uploadedResult.imageUrls];
+        console.log("Uploading new images...");
+        setUploadProgress(1); // Indicate start of upload
+        const uploadedResult = await uploadImages(); // This now uses adminId for path
+        // Combine existing (filtered) and newly uploaded URLs, ensuring no duplicates
+        finalImageUrls = [
+          ...new Set([...existingImages, ...uploadedResult.imageUrls]),
+        ];
+        setUploadProgress(100); // Mark as complete
+        console.log("Image upload complete. Final URLs:", finalImageUrls);
+      } else {
+        console.log("No new images to upload. Using existing:", existingImages);
+        finalImageUrls = [...existingImages]; // Use only the remaining existing images
       }
-      
-      // Clean the imageUrls array to ensure it's valid
-      const cleanedImageUrls = imageUrls.filter(url => 
-        url && typeof url === 'string' && url.trim() !== ''
+
+      // Clean the final imageUrls array
+      const cleanedImageUrls = finalImageUrls.filter(
+        (url) => url && typeof url === "string" && url.trim() !== ""
       );
-      
-      // Prepare the data for update
-      const updateData = {
+      console.log("Cleaned final image URLs:", cleanedImageUrls);
+
+      // --- Prepare Data for RPC ---
+      const propertyDataForUpdate = {
         title: formData.title,
         description: formData.description,
         address: formData.address,
@@ -394,34 +510,62 @@ export default function PropertyFormEditor() {
         beds: Number(formData.beds),
         baths: Number(formData.baths),
         sqft: Number(formData.sqft),
-        images: cleanedImageUrls,
-        // Include mobile_number if it exists and is a string
-        ...(formData.mobile_number && typeof formData.mobile_number === 'string' && formData.mobile_number.trim() !== '' 
-          ? { mobile_number: formData.mobile_number.trim() } 
-          : {}),
-        updated_at: new Date().toISOString()
+        images: cleanedImageUrls, // Use the final cleaned array
+        // Set the main imageUrl based on the first image in the final array
+        imageUrl: cleanedImageUrls.length > 0 ? cleanedImageUrls[0] : null,
+        // Include mobile_number if valid
+        ...(formData.mobile_number &&
+        typeof formData.mobile_number === "string" &&
+        /^\d{10}$/.test(formData.mobile_number.trim())
+          ? { mobile_number: formData.mobile_number.trim() }
+          : { mobile_number: null }), // Set to null if invalid or empty
+        // updated_at is handled by the RPC function
       };
-      
-      console.log("Updating property with data:", updateData);
-      
-      // Update the property
-      const { error } = await supabase
-        .from("properties")
-        .update(updateData)
-        .eq("id", propertyId);
-      
-      if (error) throw error;
-      
-      // Show success toast
+
+      console.log(
+        "Calling RPC admin_update_property with data:",
+        propertyDataForUpdate
+      );
+      console.log("Admin ID:", currentAdminId);
+      console.log("Property ID:", propertyId);
+
+      // --- Call RPC Function ---
+      const { data: updateResult, error: rpcError } = await supabase.rpc(
+        "admin_update_property",
+        {
+          p_requesting_admin_id: currentAdminId,
+          p_property_id: propertyId,
+          p_property_data: propertyDataForUpdate, // Pass the data as JSONB
+        }
+      );
+
+      if (rpcError) {
+        console.error("RPC Error updating property:", rpcError);
+        throw rpcError; // Throw to be caught below
+      }
+
+      // Check the result from the RPC function (should return true on success)
+      if (updateResult !== true) {
+        console.warn(
+          "Admin update RPC returned unexpected result:",
+          updateResult
+        );
+        // Throw an error or handle as appropriate if update didn't succeed on DB side
+        throw new Error("Database update did not confirm success.");
+      }
+
+      console.log("Property update successful via RPC.");
+
+      // --- Success Handling (unchanged) ---
       toast({
         title: "Success",
         description: "Property has been updated successfully!",
         variant: "default",
       });
-      
+
       // Show success dialog
       setShowSuccessDialog(true);
-      
+
       // Reset form after successful submission
       setTimeout(() => {
         navigate("/admin/properties");
@@ -537,11 +681,15 @@ export default function PropertyFormEditor() {
                 value={formData.mobile_number}
                 onChange={handleChange}
                 placeholder="e.g. 9876543210"
-                className={`pl-10 ${errors.mobile_number ? "border-red-500" : ""}`}
+                className={`pl-10 ${
+                  errors.mobile_number ? "border-red-500" : ""
+                }`}
               />
             </div>
             {errors.mobile_number && (
-              <p className="text-red-500 text-sm mt-1">{errors.mobile_number}</p>
+              <p className="text-red-500 text-sm mt-1">
+                {errors.mobile_number}
+              </p>
             )}
           </div>
 
@@ -614,7 +762,9 @@ export default function PropertyFormEditor() {
           <div>
             <Label>Property Images</Label>
             <div
-              className={`mt-2 border-2 border-dashed rounded-lg p-6 transition-colors ${dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300"} ${errors.image ? "border-red-500" : ""}`}
+              className={`mt-2 border-2 border-dashed rounded-lg p-6 transition-colors ${
+                dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300"
+              } ${errors.image ? "border-red-500" : ""}`}
               onDragEnter={handleDrag}
               onDragOver={handleDrag}
               onDragLeave={handleDrag}
@@ -633,15 +783,20 @@ export default function PropertyFormEditor() {
               {imagePreviews.length === 0 ? (
                 <div className="text-center">
                   <ImageIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500 mb-2">Drag & drop images here or click to browse</p>
-                  <p className="text-gray-400 text-sm">JPG, PNG or GIF, up to 5MB each</p>
+                  <p className="text-gray-500 mb-2">
+                    Drag & drop images here or click to browse
+                  </p>
+                  <p className="text-gray-400 text-sm">
+                    JPG, PNG or GIF, up to 5MB each
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-4">
                   <p className="text-gray-500 text-sm mb-2">
-                    {imagePreviews.length} image{imagePreviews.length !== 1 ? "s" : ""} selected
+                    {imagePreviews.length} image
+                    {imagePreviews.length !== 1 ? "s" : ""} selected
                   </p>
-                  
+
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     {imagePreviews.map((src, index) => (
                       <div key={index} className="relative group">
@@ -662,8 +817,8 @@ export default function PropertyFormEditor() {
                         </button>
                       </div>
                     ))}
-                    
-                    <div 
+
+                    <div
                       className="border-2 border-dashed border-gray-300 rounded-md flex items-center justify-center h-24 cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -672,7 +827,9 @@ export default function PropertyFormEditor() {
                     >
                       <div className="flex flex-col items-center">
                         <Upload className="h-6 w-6 text-gray-400" />
-                        <span className="text-xs text-gray-500 mt-1">Add More</span>
+                        <span className="text-xs text-gray-500 mt-1">
+                          Add More
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -742,4 +899,4 @@ export default function PropertyFormEditor() {
       </Dialog>
     </div>
   );
-} 
+}

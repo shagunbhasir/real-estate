@@ -3,12 +3,26 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../../../supabase/supabase";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "../ui/loading-spinner";
-import { MapPin, Home, Bath, ArrowLeft, Calendar, User, BedDouble, Ruler, Heart, Share2, Phone, Image } from "lucide-react";
+import {
+  MapPin,
+  Home,
+  Bath,
+  ArrowLeft,
+  Calendar,
+  User,
+  BedDouble,
+  Ruler,
+  Heart,
+  Share2,
+  Phone,
+  Image,
+} from "lucide-react";
 import GoogleMapComponent from "../home/GoogleMap";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import ImageGalleryModal from "./ImageGalleryModal";
+import { normalizeImageArray } from "@/utils/imageUtils"; // Import the utility function
 
 interface Property {
   id: string;
@@ -70,50 +84,46 @@ export default function PropertyDetail() {
         console.log("Property images array:", data.images);
         console.log("Property main image:", data.image_url);
 
-        // Ensure images is a proper array
-        let imagesArray = [];
+        // Ensure images is a proper array using the utility function
+        let imagesArray: string[] = [];
         if (data.images) {
-          if (Array.isArray(data.images)) {
-            imagesArray = data.images.filter(img => img && typeof img === 'string' && img.trim() !== '');
-          } else if (typeof data.images === 'string') {
-            try {
-              // Try to parse if it's a JSON string
-              const parsed = JSON.parse(data.images);
-              if (Array.isArray(parsed)) {
-                imagesArray = parsed.filter(img => img && typeof img === 'string' && img.trim() !== '');
-              } else {
-                imagesArray = [data.images];
-              }
-            } catch (e) {
-              // Not JSON, treat as a single URL
-              imagesArray = [data.images];
-            }
-          }
+          // Explicitly use normalizeImageArray here for processing and logging
+          imagesArray = normalizeImageArray(data.images);
         }
-        
-        console.log("Processed images array:", imagesArray);
+
+        console.log(
+          "Processed images array (using normalizeImageArray):",
+          imagesArray
+        ); // Log the normalized array
 
         // Prepare all images
-        const allImages = [];
-        
-        // First add the main image if it exists
-        if (data.image_url) {
-          allImages.push(data.image_url);
+        const allImages: string[] = [];
+
+        // First add the main image if it exists and is valid
+        if (
+          data.image_url &&
+          typeof data.image_url === "string" &&
+          data.image_url.trim() !== ""
+        ) {
+          allImages.push(data.image_url.trim());
         }
-        
-        // Then add all additional images that aren't already in the list
-        imagesArray.forEach(img => {
-          // Only add the image if it's valid and not a duplicate of the main image
-          if (img && typeof img === 'string' && img.trim() !== '' && !allImages.includes(img)) {
+
+        // Then add all additional images from the *normalized* array that aren't already in the list
+        imagesArray.forEach((img) => {
+          // normalizeImageArray already filters and trims, just need to check for duplicates
+          if (!allImages.includes(img)) {
             allImages.push(img);
           }
         });
-        
-        console.log("Combined property images:", allImages);
+
+        console.log(
+          "Combined property images (before setting state):",
+          allImages
+        ); // Log the final array
         console.log("Number of combined images:", allImages.length);
-        
-        setPropertyImages(allImages);
-        
+
+        setPropertyImages(allImages); // Set the state
+
         // Geocode the address to get coordinates for the map
         if (
           window.google &&
@@ -151,7 +161,7 @@ export default function PropertyDetail() {
 
   // Helper function to determine if a verification status is verified
   const isVerified = (status?: boolean | number | string) => {
-    if (status === true || status === 'verified' || status === 1) {
+    if (status === true || status === "verified" || status === 1) {
       return true;
     }
     return false;
@@ -191,7 +201,7 @@ export default function PropertyDetail() {
       year: "numeric",
       month: "long",
       day: "numeric",
-    },
+    }
   );
 
   return (
@@ -200,39 +210,43 @@ export default function PropertyDetail() {
         <Button onClick={() => navigate(-1)} variant="outline" size="sm">
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to listings
         </Button>
-        
+
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             size="sm"
             onClick={() => setIsFavorite(!isFavorite)}
             className={isFavorite ? "text-red-500" : ""}
           >
-            <Heart className={`mr-2 h-4 w-4 ${isFavorite ? "fill-red-500 text-red-500" : ""}`} />
+            <Heart
+              className={`mr-2 h-4 w-4 ${
+                isFavorite ? "fill-red-500 text-red-500" : ""
+              }`}
+            />
             {isFavorite ? "Saved" : "Save"}
           </Button>
-          
+
           <Button variant="outline" size="sm">
             <Share2 className="mr-2 h-4 w-4" /> Share
           </Button>
         </div>
       </div>
-      
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Main Content */}
         <div className="lg:col-span-8">
           {/* Property Type Badge */}
           <div className="relative">
             <div
-              className={`absolute top-4 left-4 z-10 ${property.type === "sale" ? "bg-blue-600" : "bg-green-600"} text-white px-3 py-1 rounded-md text-sm font-medium`}
+              className={`absolute top-4 left-4 z-10 ${
+                property.type === "sale" ? "bg-blue-600" : "bg-green-600"
+              } text-white px-3 py-1 rounded-md text-sm font-medium`}
             >
               {property.type === "sale" ? "For Sale" : "For Rent"}
             </div>
-            
+
             {isVerified(property.verification_status) && (
-              <div
-                className="absolute top-4 right-4 z-10 bg-green-600 text-white px-3 py-1 rounded-md text-sm font-medium flex items-center"
-              >
+              <div className="absolute top-4 right-4 z-10 bg-green-600 text-white px-3 py-1 rounded-md text-sm font-medium flex items-center">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
@@ -250,16 +264,22 @@ export default function PropertyDetail() {
                 Verified
               </div>
             )}
-            
+
             {/* Main image */}
             {propertyImages.length > 0 ? (
-              <div className="relative h-[400px] rounded-xl overflow-hidden cursor-pointer" onClick={() => openGallery(0)}>
+              <div
+                className="relative h-[400px] rounded-xl overflow-hidden cursor-pointer"
+                onClick={() => openGallery(0)}
+              >
                 <img
                   src={propertyImages[0]}
                   alt={property.title}
                   className="w-full h-full object-cover"
                   onError={(e) => {
-                    console.error("Main image failed to load:", propertyImages[0]);
+                    console.error(
+                      "Main image failed to load:",
+                      propertyImages[0]
+                    );
                     const target = e.target as HTMLImageElement;
                     target.src = "/images/property-placeholder.jpg";
                   }}
@@ -284,18 +304,18 @@ export default function PropertyDetail() {
                 <p className="text-gray-500">No images available</p>
               </div>
             )}
-            
+
             {/* Thumbnail images */}
             {propertyImages.length > 1 && (
               <div className="grid grid-cols-4 gap-2 mt-2">
                 {propertyImages.slice(0, 4).map((image, index) => (
-                  <div 
-                    key={index} 
+                  <div
+                    key={index}
                     className="aspect-square rounded-md overflow-hidden cursor-pointer"
                     onClick={() => openGallery(index)}
                   >
-                    <img 
-                      src={image} 
+                    <img
+                      src={image}
                       alt={`${property.title} - Image ${index + 1}`}
                       className="w-full h-full object-cover"
                       onError={(e) => {
@@ -309,7 +329,7 @@ export default function PropertyDetail() {
               </div>
             )}
           </div>
-          
+
           <div className="mt-6">
             <div className="flex items-center gap-2 mb-2">
               <h1 className="text-3xl font-bold">{property.title}</h1>
@@ -318,11 +338,12 @@ export default function PropertyDetail() {
                   Verified
                 </Badge>
               )}
-              {property.verification_status !== undefined && !isVerified(property.verification_status) && (
-                <Badge variant="destructive" className="ml-2">
-                  Not Verified
-                </Badge>
-              )}
+              {property.verification_status !== undefined &&
+                !isVerified(property.verification_status) && (
+                  <Badge variant="destructive" className="ml-2">
+                    Not Verified
+                  </Badge>
+                )}
             </div>
             <div className="flex items-center text-gray-600 mb-4">
               <MapPin className="h-5 w-5 mr-2 text-gray-400" />
@@ -330,8 +351,12 @@ export default function PropertyDetail() {
             </div>
 
             <div className="flex items-center text-2xl font-bold text-blue-600 mb-6">
-              ₹{property.price.toLocaleString('en-IN')}
-              {property.type === "rent" && <span className="text-sm font-normal text-gray-500 ml-1">/month</span>}
+              ₹{property.price.toLocaleString("en-IN")}
+              {property.type === "rent" && (
+                <span className="text-sm font-normal text-gray-500 ml-1">
+                  /month
+                </span>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-4 mb-6">
@@ -345,36 +370,49 @@ export default function PropertyDetail() {
               </div>
               <div className="flex items-center bg-blue-50 px-3 py-2 rounded-lg">
                 <Ruler className="h-5 w-5 mr-2 text-blue-600" />
-                <span className="font-medium">{property.sqft.toLocaleString()} sqft</span>
+                <span className="font-medium">
+                  {property.sqft.toLocaleString()} sqft
+                </span>
               </div>
             </div>
-            
+
             <Tabs defaultValue="details">
               <TabsList className="w-full mb-4">
                 <TabsTrigger value="details">Details</TabsTrigger>
                 <TabsTrigger value="features">Features</TabsTrigger>
                 <TabsTrigger value="location">Location</TabsTrigger>
               </TabsList>
-              
-              <TabsContent value="details" className="bg-white rounded-lg p-5 shadow-sm">
+
+              <TabsContent
+                value="details"
+                className="bg-white rounded-lg p-5 shadow-sm"
+              >
                 <h2 className="text-xl font-semibold mb-4">Property Details</h2>
                 <div className="space-y-4">
                   <p className="text-gray-700 whitespace-pre-line">
                     {property.description || "No description provided."}
                   </p>
-                  
+
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-gray-100">
                     <div className="flex flex-col">
-                      <span className="text-gray-500 text-sm">Property Type</span>
-                      <span className="font-medium capitalize">{property.type === "sale" ? "For Sale" : "For Rent"}</span>
+                      <span className="text-gray-500 text-sm">
+                        Property Type
+                      </span>
+                      <span className="font-medium capitalize">
+                        {property.type === "sale" ? "For Sale" : "For Rent"}
+                      </span>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-gray-500 text-sm">Price</span>
-                      <span className="font-medium">₹{property.price.toLocaleString('en-IN')}</span>
+                      <span className="font-medium">
+                        ₹{property.price.toLocaleString("en-IN")}
+                      </span>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-gray-500 text-sm">Size</span>
-                      <span className="font-medium">{property.sqft.toLocaleString()} sqft</span>
+                      <span className="font-medium">
+                        {property.sqft.toLocaleString()} sqft
+                      </span>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-gray-500 text-sm">Listed On</span>
@@ -384,7 +422,9 @@ export default function PropertyDetail() {
                       <span className="text-gray-500 text-sm">Status</span>
                       <span className="font-medium flex items-center">
                         {isVerified(property.verification_status) ? (
-                          <Badge variant="default" className="bg-green-600">Verified</Badge>
+                          <Badge variant="default" className="bg-green-600">
+                            Verified
+                          </Badge>
                         ) : (
                           <Badge variant="destructive">Not Verified</Badge>
                         )}
@@ -393,9 +433,14 @@ export default function PropertyDetail() {
                   </div>
                 </div>
               </TabsContent>
-              
-              <TabsContent value="features" className="bg-white rounded-lg p-5 shadow-sm">
-                <h2 className="text-xl font-semibold mb-4">Features & Amenities</h2>
+
+              <TabsContent
+                value="features"
+                className="bg-white rounded-lg p-5 shadow-sm"
+              >
+                <h2 className="text-xl font-semibold mb-4">
+                  Features & Amenities
+                </h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4">
                   <div className="flex items-center">
                     <BedDouble className="h-5 w-5 mr-2 text-blue-600" />
@@ -409,7 +454,7 @@ export default function PropertyDetail() {
                     <Ruler className="h-5 w-5 mr-2 text-blue-600" />
                     <span>{property.sqft.toLocaleString()} Sq ft</span>
                   </div>
-                  
+
                   {/* Example amenities - can be dynamic based on property data */}
                   <div className="flex items-center">
                     <div className="h-2 w-2 rounded-full bg-blue-600 mr-2"></div>
@@ -425,14 +470,17 @@ export default function PropertyDetail() {
                   </div>
                 </div>
               </TabsContent>
-              
-              <TabsContent value="location" className="bg-white rounded-lg p-5 shadow-sm">
+
+              <TabsContent
+                value="location"
+                className="bg-white rounded-lg p-5 shadow-sm"
+              >
                 <h2 className="text-xl font-semibold mb-4">Location</h2>
                 <div className="flex items-center text-gray-600 mb-4">
                   <MapPin className="h-5 w-5 mr-2 text-gray-400" />
                   <span>{property.address}</span>
                 </div>
-                
+
                 {coordinates ? (
                   <div className="h-[300px] rounded-lg overflow-hidden">
                     <GoogleMapComponent
@@ -457,29 +505,35 @@ export default function PropertyDetail() {
             </Tabs>
           </div>
         </div>
-        
+
         {/* Sidebar */}
         <div className="lg:col-span-4">
           {/* Contact Agent Card */}
           <Card className="bg-white shadow-md mb-6">
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">Contact Agent</h3>
-              
+
               <div className="flex items-center mb-4">
                 <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center mr-3">
                   <User className="h-6 w-6 text-gray-500" />
                 </div>
                 <div>
-                  <p className="font-medium">{property.user?.full_name || "Property Agent"}</p>
-                  <p className="text-sm text-gray-500">{property.user?.email || "agent@example.com"}</p>
+                  <p className="font-medium">
+                    {property.user?.full_name || "Property Agent"}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {property.user?.email || "agent@example.com"}
+                  </p>
                   {property.mobile_number && (
-                    <p className="text-sm text-gray-500">{property.mobile_number}</p>
+                    <p className="text-sm text-gray-500">
+                      {property.mobile_number}
+                    </p>
                   )}
                 </div>
               </div>
-              
-              <Button 
-                className="w-full bg-green-600 hover:bg-green-700 text-white" 
+
+              <Button
+                className="w-full bg-green-600 hover:bg-green-700 text-white"
                 size="lg"
                 onClick={() => {
                   if (property.mobile_number) {
@@ -488,25 +542,29 @@ export default function PropertyDetail() {
                 }}
                 disabled={!property.mobile_number}
               >
-                <Phone className="mr-2 h-4 w-4" /> 
+                <Phone className="mr-2 h-4 w-4" />
                 {property.mobile_number ? "Call Agent" : "No Contact Number"}
               </Button>
             </CardContent>
           </Card>
-          
+
           {/* Additional Info Card */}
           <Card className="bg-white shadow-md">
             <CardContent className="p-6">
               <h3 className="text-xl font-semibold mb-4">Property Summary</h3>
-              
+
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Property ID</span>
-                  <span className="font-medium">{property.id.substring(0, 8)}</span>
+                  <span className="font-medium">
+                    {property.id.substring(0, 8)}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Property Type</span>
-                  <span className="font-medium capitalize">{property.type}</span>
+                  <span className="font-medium capitalize">
+                    {property.type}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Added</span>

@@ -29,7 +29,17 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, MoreHorizontal, Search, Pencil, Trash, Eye, ImageOff, Edit, Trash2 } from "lucide-react";
+import {
+  Loader2,
+  MoreHorizontal,
+  Search,
+  Pencil,
+  Trash,
+  Eye,
+  ImageOff,
+  Edit,
+  Trash2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -42,8 +52,10 @@ import {
 import { useNavigate } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { normalizeImageArray } from "@/utils/imageUtils";
+// TODO: Import or implement a function to get the current admin ID from session/storage
+// import { getAdminIdFromSession } from '@/path/to/authUtils';
 
-// Property interface for admin management
+// Property interface for admin management (should match RPC return type)
 interface Property {
   id: string;
   title: string;
@@ -74,90 +86,124 @@ const PropertyManagement = () => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [propertyFilter, setPropertyFilter] = useState<"all" | "sale" | "rent">("all");
+  const [propertyFilter, setPropertyFilter] = useState<"all" | "sale" | "rent">(
+    "all"
+  );
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [selectedProperty, setSelectedProperty] = useState<{ id: string; title: string } | null>(null);
+  const [selectedProperty, setSelectedProperty] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
   const [showImagePreview, setShowImagePreview] = useState(false);
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const propertiesPerPage = 10;
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [currentAdminId, setCurrentAdminId] = useState<string | null>(null); // State to hold admin ID
 
-  // Fetch properties from database
-  const fetchProperties = async () => {
+  // Get Admin ID from localStorage, checking expiry (matching adminAuth.tsx)
+  const getAdminId = () => {
+    const adminDataString = localStorage.getItem("admin");
+    const sessionExpiryString = localStorage.getItem("adminSessionExpiry");
+
+    if (adminDataString && sessionExpiryString) {
+      const expiryDate = new Date(sessionExpiryString);
+      if (expiryDate > new Date()) {
+        // Session is valid
+        try {
+          const adminData = JSON.parse(adminDataString);
+          if (adminData && adminData.id) {
+            console.log(
+              "Retrieved valid admin ID from localStorage ('admin' key):",
+              adminData.id
+            );
+            return adminData.id; // Return the ID from the parsed object
+          } else {
+            console.error(
+              "Parsed admin data from localStorage is missing 'id'."
+            );
+            localStorage.removeItem("admin"); // Clear invalid data
+            localStorage.removeItem("adminSessionExpiry");
+            return null;
+          }
+        } catch (e) {
+          console.error("Failed to parse admin data from localStorage:", e);
+          localStorage.removeItem("admin"); // Clear corrupted data
+          localStorage.removeItem("adminSessionExpiry");
+          return null;
+        }
+      } else {
+        // Session expired
+        console.log("Admin session found but expired. Clearing.");
+        localStorage.removeItem("admin");
+        localStorage.removeItem("adminSessionExpiry");
+        return null;
+      }
+    } else {
+      // No session found
+      console.log(
+        "No admin session found in localStorage ('admin' or 'adminSessionExpiry' key missing)."
+      );
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    const adminId = getAdminId();
+    if (adminId) {
+      setCurrentAdminId(adminId);
+      // Fetch properties only after getting the admin ID
+      fetchProperties(adminId);
+    } else {
+      console.error("Admin ID not found. Cannot fetch properties.");
+      toast({
+        title: "Authentication Error",
+        description: "Admin session not found. Please log in again.",
+        variant: "destructive",
+      });
+      setLoading(false);
+      // Optionally redirect to login: navigate('/admin/login');
+    }
+  }, []); // Run once on mount
+
+  // Fetch properties using the RPC function
+  const fetchProperties = async (adminId: string) => {
+    if (!adminId) {
+      console.error("fetchProperties called without adminId");
+      return;
+    }
     try {
       setLoading(true);
-      console.log("Fetching properties from database...");
-      
-      // First get properties with their basic info
-      const { data: propertyData, error: propertyError } = await supabase
-        .from("properties")
-        .select(`
-          id,
-          title,
-          description,
-          address,
-          price,
-          type,
-          beds,
-          baths,
-          sqft,
-          images,
-          mobile_number,
-          verification_status,
-          views_count,
-          created_at,
-          updated_at,
-          user_id
-        `)
-        .order("created_at", { ascending: false });
+      console.log(
+        "Fetching properties via RPC: admin_get_all_properties_with_owners"
+      );
 
-      if (propertyError) {
-        console.error("Error fetching properties:", propertyError);
-        throw propertyError;
+      const { data, error } = await supabase.rpc(
+        "admin_get_all_properties_with_owners",
+        {
+          p_requesting_admin_id: adminId,
+        }
+      );
+
+      if (error) {
+        console.error("Error fetching properties via RPC:", error);
+        throw error;
       }
 
-      if (propertyData) {
-        // Log a sample property to examine the verification_status data type
-        if (propertyData.length > 0) {
-          console.log("Sample property data:", propertyData[0]);
-          console.log("Verification status type:", typeof propertyData[0].verification_status);
-          console.log("Verification status value:", propertyData[0].verification_status);
-        }
-        
-        // Now fetch user info for each property
-        const propertiesWithOwners = await Promise.all(
-          propertyData.map(async (property) => {
-            // Ensure verification_status is stored as a boolean
-            const normalizedProperty = {
-              ...property,
-              verification_status: Boolean(property.verification_status)
-            };
-            
-            if (property.user_id) {
-              const { data: userData, error: userError } = await supabase
-                .from("users")
-                .select("full_name, email")
-                .eq("id", property.user_id)
-                .single();
-
-              if (!userError && userData) {
-                return {
-                  ...normalizedProperty,
-                  owner_name: userData.full_name,
-                  owner_email: userData.email,
-                };
-              }
-            }
-            return normalizedProperty;
-          })
-        );
-
-        setProperties(propertiesWithOwners);
+      if (data) {
+        // Ensure verification_status is boolean, RPC should return correct types
+        const processedData = data.map((p) => ({
+          ...p,
+          verification_status: Boolean(p.verification_status),
+        }));
+        console.log("Properties fetched via RPC:", processedData);
+        setProperties(processedData as Property[]); // Cast might be needed if types slightly differ
+      } else {
+        setProperties([]); // Set to empty array if no data
       }
     } catch (error) {
-      console.error("Error fetching properties:", error);
+      console.error("Error in fetchProperties:", error);
       toast({
         title: "Error fetching properties",
         description: "Could not load property data. Please try again later.",
@@ -167,10 +213,6 @@ const PropertyManagement = () => {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchProperties();
-  }, []);
 
   // Filter properties based on search term and property type
   const filteredProperties = properties.filter((property) => {
@@ -196,35 +238,74 @@ const PropertyManagement = () => {
   );
   const totalPages = Math.ceil(filteredProperties.length / propertiesPerPage);
 
-  // Handle property deletion
+  // Handle property deletion using RPC
   const handleDeleteProperty = async () => {
-    if (!selectedProperty) return;
+    if (!selectedProperty || !currentAdminId) {
+      console.error("Cannot delete: Missing selected property or admin ID.");
+      toast({
+        title: "Error",
+        description: "Cannot perform deletion.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    console.log(
+      `Attempting to delete property ID: ${selectedProperty.id} by admin ID: ${currentAdminId}`
+    );
 
     try {
-      const { error } = await supabase
-        .from("properties")
-        .delete()
-        .eq("id", selectedProperty.id);
-
-      if (error) throw error;
-
-      // Refresh the properties list
-      await fetchProperties();
-
-      toast({
-        title: "Property deleted",
-        description: "The property has been successfully deleted.",
+      setLoading(true); // Indicate loading state during deletion
+      const { data, error } = await supabase.rpc("admin_delete_property", {
+        p_requesting_admin_id: currentAdminId,
+        p_property_id: selectedProperty.id,
       });
-    } catch (error) {
+
+      if (error) {
+        console.error("Error deleting property via RPC:", error);
+        throw error; // Throw error to be caught below
+      }
+
+      // data should be true if deletion was successful (RETURN FOUND)
+      if (data === true) {
+        console.log(`Property ${selectedProperty.id} deleted successfully.`);
+        // Refresh the properties list *after* successful deletion
+        // Ensure fetchProperties uses the stored admin ID
+        if (currentAdminId) {
+          await fetchProperties(currentAdminId);
+        } else {
+          console.error("Admin ID missing, cannot refresh properties list.");
+          // Handle this case appropriately, maybe show an error or reload page
+        } // <-- Add missing closing brace for the inner if
+        toast({
+          // Move toast inside the success block
+          title: "Property deleted",
+          description: "The property has been successfully deleted.",
+        });
+      } else {
+        // Handle case where deletion RPC succeeded but didn't return true (unexpected)
+        console.warn(
+          `Property deletion RPC for ${selectedProperty.id} returned unexpected data:`,
+          data
+        );
+        toast({
+          title: "Deletion Status Unknown",
+          description: "Could not confirm deletion status.",
+          variant: "default",
+        });
+      }
+    } catch (error: any) {
+      // Add type annotation for error
       console.error("Error deleting property:", error);
       toast({
         title: "Error deleting property",
-        description: "There was an error deleting the property. Please try again.",
+        description: error.message || "Could not delete the property.",
         variant: "destructive",
       });
     } finally {
       setShowDeleteDialog(false);
       setSelectedProperty(null);
+      setLoading(false); // Ensure loading state is reset
     }
   };
 
@@ -233,14 +314,14 @@ const PropertyManagement = () => {
     // Normalize image array handling both imageUrl and images array
     const images = normalizeImageArray(property.images);
     const mainImage = property.imageUrl || property.image_url;
-    
+
     // If we have a main image not in the array, add it first
     if (mainImage && !images.includes(mainImage)) {
       setPreviewImages([mainImage, ...images]);
     } else {
       setPreviewImages(images);
     }
-    
+
     setShowImagePreview(true);
   };
 
@@ -273,71 +354,103 @@ const PropertyManagement = () => {
   };
 
   // Handle property verification status change
-  const handleVerificationChange = async (propertyId: string, setToVerified: boolean) => {
+  const handleVerificationChange = async (
+    propertyId: string,
+    setToVerified: boolean
+  ) => {
+    let updateSucceeded = false; // Flag to track success
     try {
-      setLoading(true);
-      
-      console.log(`==== PROPERTY VERIFICATION CHANGE ====`);
+      // Add detailed logging before the operation
+      console.log(
+        `[handleVerificationChange] Attempting update for property ID: ${propertyId}`
+      );
+      console.log(
+        `[handleVerificationChange] Target verification status: ${setToVerified} (Type: ${typeof setToVerified})`
+      );
+
+      setLoading(true); // Set loading after logging initial info
+      console.log(`==== PROPERTY VERIFICATION CHANGE (RPC Call) ====`);
       console.log(`Property ID: ${propertyId}`);
       console.log(`Change to: ${setToVerified}`);
-      
-      // Update the property verification status
-      // Setting the value directly as a boolean since the DB column is boolean
-      const { error: updateError } = await supabase
-        .from("properties")
-        .update({
-          verification_status: setToVerified,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", propertyId);
-      
-      if (updateError) {
-        throw new Error(`Failed to update verification status: ${updateError.message}`);
+
+      // Call the RPC function to update verification status
+      const { error: rpcError } = await supabase.rpc(
+        "update_property_verification",
+        {
+          p_property_id: propertyId,
+          p_new_status: setToVerified,
+        }
+      );
+
+      // Log the result of the RPC call immediately
+      console.log(
+        `[handleVerificationChange] RPC call result - Error object:`,
+        rpcError
+      );
+
+      if (rpcError) {
+        // Log the specific RPC error with more details and throw it
+        console.error(
+          "Supabase RPC error (update_property_verification):",
+          JSON.stringify(rpcError, null, 2) // Stringify for better logging
+        );
+        // Include more details in the thrown error
+        throw new Error(
+          `Database update via RPC failed: ${rpcError.message} (Code: ${rpcError.code}, Details: ${rpcError.details}, Hint: ${rpcError.hint})`
+        );
       }
-      
-      // Update local state to avoid unnecessary refresh
-      setProperties(prevProperties => 
-        prevProperties.map(property => 
-          property.id === propertyId 
-            ? { ...property, verification_status: setToVerified } 
+
+      // If we reach here, the database update was successful
+      updateSucceeded = true;
+      console.log(`==== VERIFICATION DB UPDATE SUCCESSFUL ====`);
+
+      // Update local state ONLY AFTER successful DB update
+      setProperties((prevProperties) =>
+        prevProperties.map((property) =>
+          property.id === propertyId
+            ? { ...property, verification_status: setToVerified }
             : property
         )
       );
-      
-      // Show success notification
+
+      // Show success notification ONLY AFTER successful DB update
       toast({
         title: "Status Updated",
-        description: `Property verification status has been ${setToVerified ? "verified" : "unverified"}.`,
-        variant: "default",
+        description: `Property verification status has been ${
+          setToVerified ? "verified" : "unverified"
+        }.`,
+        variant: "default", // Use default (usually green) for success
       });
-      
-      console.log(`==== VERIFICATION SUCCESSFUL ====`);
-      
     } catch (error) {
-      console.error("Verification Error:", error);
-      
-      let errorMessage = "Failed to update verification status";
-      if (error instanceof Error) {
-        errorMessage = error.message;
+      console.error("Verification Error (Catch Block):", error);
+      // Show failure toast only if the DB update didn't succeed
+      if (!updateSucceeded) {
+        let errorMessage =
+          "Failed to update verification status. Please try again.";
+        // Use the specific error message from the caught error if available
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        toast({
+          title: "Verification Failed",
+          description: errorMessage,
+          variant: "destructive", // Use destructive (usually red) for failure
+        });
       }
-      
-      toast({
-        title: "Verification Failed",
-        description: errorMessage,
-        variant: "destructive",
-      });
     } finally {
-      setLoading(false);
+      setLoading(false); // Ensure loading state is always reset
     }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center flex-wrap gap-4">
-        <h2 className="text-2xl font-bold text-gray-800">Property Management</h2>
+        <h2 className="text-2xl font-bold text-gray-800">
+          Property Management
+        </h2>
 
         <div className="flex items-center gap-3">
-          <Button 
+          <Button
             onClick={() => navigate("/list-property")}
             className="bg-green-600 hover:bg-green-700"
           >
@@ -355,7 +468,9 @@ const PropertyManagement = () => {
 
           <Tabs
             value={propertyFilter}
-            onValueChange={(v) => setPropertyFilter(v as "all" | "sale" | "rent")}
+            onValueChange={(v) =>
+              setPropertyFilter(v as "all" | "sale" | "rent")
+            }
             className="w-auto"
           >
             <TabsList>
@@ -411,46 +526,46 @@ const PropertyManagement = () => {
                     <TableCell>{formatPrice(property.price)}</TableCell>
                     <TableCell>{property.mobile_number || "N/A"}</TableCell>
                     <TableCell>
-                      <Badge 
+                      <Badge
                         variant={
-                          property.verification_status 
-                            ? 'default' 
-                            : 'destructive'
+                          property.verification_status
+                            ? "default"
+                            : "destructive"
                         }
                         className={
                           property.verification_status
-                            ? 'bg-green-600 hover:bg-green-700 flex items-center gap-1'
-                            : 'flex items-center gap-1'
+                            ? "bg-green-600 hover:bg-green-700 flex items-center gap-1"
+                            : "flex items-center gap-1"
                         }
                       >
                         {property.verification_status ? (
                           <>
-                            <svg 
-                              xmlns="http://www.w3.org/2000/svg" 
-                              className="h-3 w-3" 
-                              viewBox="0 0 20 20" 
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              className="h-3 w-3"
+                              viewBox="0 0 20 20"
                               fill="currentColor"
                             >
-                              <path 
-                                fillRule="evenodd" 
-                                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
-                                clipRule="evenodd" 
+                              <path
+                                fillRule="evenodd"
+                                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                clipRule="evenodd"
                               />
                             </svg>
                             Verified
                           </>
                         ) : (
                           <>
-                            <svg 
-                              xmlns="http://www.w3.org/2000/svg" 
-                              className="h-3 w-3" 
-                              viewBox="0 0 20 20" 
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              className="h-3 w-3"
+                              viewBox="0 0 20 20"
                               fill="currentColor"
                             >
-                              <path 
-                                fillRule="evenodd" 
-                                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" 
-                                clipRule="evenodd" 
+                              <path
+                                fillRule="evenodd"
+                                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                clipRule="evenodd"
                               />
                             </svg>
                             Not Verified
@@ -458,9 +573,7 @@ const PropertyManagement = () => {
                         )}
                       </Badge>
                     </TableCell>
-                    <TableCell>
-                      {property.views_count || 0}
-                    </TableCell>
+                    <TableCell>{property.views_count || 0}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end space-x-2">
                         <Button
@@ -474,7 +587,9 @@ const PropertyManagement = () => {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleVerificationChange(property.id, true)}
+                            onClick={() =>
+                              handleVerificationChange(property.id, true)
+                            }
                             className="bg-green-50 text-green-600 border-green-200 hover:bg-green-100"
                             disabled={loading}
                           >
@@ -491,7 +606,9 @@ const PropertyManagement = () => {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleVerificationChange(property.id, false)}
+                            onClick={() =>
+                              handleVerificationChange(property.id, false)
+                            }
                             className="bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
                             disabled={loading}
                           >
@@ -516,7 +633,10 @@ const PropertyManagement = () => {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            setSelectedProperty({ id: property.id, title: property.title });
+                            setSelectedProperty({
+                              id: property.id,
+                              title: property.title,
+                            });
                             setShowDeleteDialog(true);
                           }}
                         >
@@ -563,13 +683,16 @@ const PropertyManagement = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Property</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the property "{selectedProperty?.title}"?
-              This action cannot be undone.
+              Are you sure you want to delete the property "
+              {selectedProperty?.title}"? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteProperty} className="bg-red-600">
+            <AlertDialogAction
+              onClick={handleDeleteProperty}
+              className="bg-red-600"
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -603,7 +726,9 @@ const PropertyManagement = () => {
           ) : (
             <div className="text-center py-8">
               <ImageOff className="h-12 w-12 mx-auto text-gray-400" />
-              <p className="mt-2 text-gray-500">No images available for this property</p>
+              <p className="mt-2 text-gray-500">
+                No images available for this property
+              </p>
             </div>
           )}
         </DialogContent>

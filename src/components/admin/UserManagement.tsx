@@ -28,7 +28,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { Loader2, MoreHorizontal, Search, UserMinus, ShieldAlert, Edit, Trash2 } from "lucide-react";
+import {
+  Loader2,
+  MoreHorizontal,
+  Search,
+  UserMinus,
+  ShieldAlert,
+  Edit,
+  Trash2,
+} from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -45,15 +53,10 @@ interface User {
   email: string;
   full_name: string;
   created_at: string;
-  updated_at: string;
+  updated_at?: string; // Make optional if not always present
   phone?: string;
-  listed_properties?: {
-    id: string;
-    title: string;
-    listed_at: string;
-    views_count: number;
-    verification_status: number;
-  }[];
+  last_sign_in_at?: string; // Add last sign in field
+  // listed_properties removed as per request
 }
 
 const UserManagement = () => {
@@ -65,32 +68,33 @@ const UserManagement = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const usersPerPage = 10;
   const { toast } = useToast();
-  const [showDeletePropertyDialog, setShowDeletePropertyDialog] = useState(false);
-  const [selectedProperty, setSelectedProperty] = useState<{ id: string; title: string } | null>(null);
+  const [showDeletePropertyDialog, setShowDeletePropertyDialog] =
+    useState(false);
+  const [selectedProperty, setSelectedProperty] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
 
   // Fetch users with their listed properties
   const fetchUsers = async () => {
     try {
       setLoading(true);
       console.log("Fetching users from database...");
-      
+
+      // Fetch users, including last_sign_in_at if available in the public.users table
       const { data, error } = await supabase
         .from("users")
-        .select(`
+        .select(
+          `
           id,
           email,
           full_name,
           created_at,
           updated_at,
           phone,
-          properties!properties_user_id_fkey (
-            id,
-            title,
-            created_at,
-            views_count,
-            verification_status
-          )
-        `)
+          last_sign_in_at 
+        `
+        ) // Removed properties join, added last_sign_in_at
         .order("created_at", { ascending: false });
 
       if (error) {
@@ -98,20 +102,14 @@ const UserManagement = () => {
         throw error;
       }
 
-      // Transform the data to match our interface
-      const transformedData = data.map(user => ({
-        ...user,
-        listed_properties: user.properties?.map(prop => ({
-          id: prop.id,
-          title: prop.title,
-          listed_at: prop.created_at,
-          views_count: prop.views_count,
-          verification_status: prop.verification_status
-        })) || []
-      }));
+      if (error) {
+        console.error("Error fetching users:", error);
+        throw error;
+      }
 
-      console.log("Users fetched successfully:", transformedData);
-      setUsers(transformedData as User[]);
+      // Log fetched data including last_sign_in_at
+      console.log("Users fetched successfully:", data);
+      setUsers(data as User[]); // Directly set data, no transformation needed now
     } catch (error) {
       console.error("Error in fetchUsers:", error);
       toast({
@@ -205,7 +203,8 @@ const UserManagement = () => {
       console.error("Error deleting property:", error);
       toast({
         title: "Error deleting property",
-        description: "There was an error deleting the property. Please try again.",
+        description:
+          "There was an error deleting the property. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -224,7 +223,7 @@ const UserManagement = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-gray-800">User Management</h2>
-        
+
         <div className="relative w-72">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-500" />
           <Input
@@ -254,67 +253,28 @@ const UserManagement = () => {
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Phone</TableHead>
-                  <TableHead>Listed Properties</TableHead>
-                  <TableHead>Total Views</TableHead>
+                  {/* <TableHead>Listed Properties</TableHead> Removed */}
+                  {/* <TableHead>Total Views</TableHead> Removed */}
                   <TableHead>Joined</TableHead>
+                  <TableHead>Last Signin</TableHead> {/* Added */}
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {currentUsers.map((user) => (
                   <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.full_name || "N/A"}</TableCell>
+                    <TableCell className="font-medium">
+                      {user.full_name || "N/A"}
+                    </TableCell>
                     <TableCell>{user.email}</TableCell>
                     <TableCell>{user.phone || "N/A"}</TableCell>
-                    <TableCell>
-                      {user.listed_properties?.length ? (
-                        <div className="space-y-2">
-                          {user.listed_properties.map(prop => (
-                            <div key={prop.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-md">
-                              <div className="flex items-center space-x-2">
-                                <span className="font-medium">{prop.title}</span>
-                                <span className="text-gray-500 text-sm">({formatDate(prop.listed_at)})</span>
-                                <Badge 
-                                  variant={prop.verification_status === 1 ? "default" : "destructive"}
-                                  className="ml-2"
-                                >
-                                  {prop.verification_status === 1 ? "Verified" : "Not Verified"}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 w-8 p-0"
-                                  onClick={() => {
-                                    window.location.href = `/admin/properties/${prop.id}/edit`;
-                                  }}
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                  onClick={() => {
-                                    setSelectedProperty({ id: prop.id, title: prop.title });
-                                    setShowDeletePropertyDialog(true);
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        "No properties listed"
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {user.listed_properties?.reduce((sum, prop) => sum + prop.views_count, 0) || 0}
-                    </TableCell>
+                    {/* Listed Properties Cell Removed */}
+                    {/* Total Views Cell Removed */}
                     <TableCell>{formatDate(user.created_at)}</TableCell>
+                    <TableCell>
+                      {formatDate(user.last_sign_in_at)}
+                    </TableCell>{" "}
+                    {/* Added Last Signin */}
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -358,7 +318,9 @@ const UserManagement = () => {
               </span>
               <Button
                 variant="outline"
-                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
                 disabled={currentPage === totalPages}
               >
                 Next
@@ -374,13 +336,17 @@ const UserManagement = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete User</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {selectedUser?.full_name || selectedUser?.email}?
-              This action cannot be undone.
+              Are you sure you want to delete{" "}
+              {selectedUser?.full_name || selectedUser?.email}? This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteUser} className="bg-red-600">
+            <AlertDialogAction
+              onClick={handleDeleteUser}
+              className="bg-red-600"
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -388,18 +354,24 @@ const UserManagement = () => {
       </AlertDialog>
 
       {/* Delete Property Dialog */}
-      <AlertDialog open={showDeletePropertyDialog} onOpenChange={setShowDeletePropertyDialog}>
+      <AlertDialog
+        open={showDeletePropertyDialog}
+        onOpenChange={setShowDeletePropertyDialog}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Property</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the property "{selectedProperty?.title}"?
-              This action cannot be undone.
+              Are you sure you want to delete the property "
+              {selectedProperty?.title}"? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteProperty} className="bg-red-600">
+            <AlertDialogAction
+              onClick={handleDeleteProperty}
+              className="bg-red-600"
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -409,4 +381,4 @@ const UserManagement = () => {
   );
 };
 
-export default UserManagement; 
+export default UserManagement;

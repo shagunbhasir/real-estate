@@ -12,27 +12,32 @@
  */
 export function normalizeImageArray(images: any): string[] {
   if (!images) return [];
-  
+
   let imagesArray: string[] = [];
-  
+
   try {
     // Handle various input types
     if (typeof images === 'string') {
-      // Try to parse if it's a JSON string
-      try {
-        const parsed = JSON.parse(images);
-        if (Array.isArray(parsed)) {
-          imagesArray = parsed;
-        } else {
-          // Single string URL
+      // Handle potential Supabase string array format like {"url1","url2"}
+      if (images.startsWith('{') && images.endsWith('}')) {
+        imagesArray = images.slice(1, -1).split(',').map(img => img.trim().replace(/^"|"$/g, '')); // Remove {} and quotes
+      } else {
+        // Try to parse if it's a standard JSON string representation of an array
+        try {
+          const parsed = JSON.parse(images);
+          if (Array.isArray(parsed)) {
+            imagesArray = parsed;
+          } else {
+            // Single string URL if not JSON array
+            imagesArray = [images];
+          }
+        } catch {
+          // Not JSON, treat as a single URL
           imagesArray = [images];
         }
-      } catch {
-        // Not JSON, treat as a single URL
-        imagesArray = [images];
       }
     } else if (Array.isArray(images)) {
-      // Array of image URLs
+      // Already an array of image URLs
       imagesArray = images;
     } else if (typeof images === 'object' && images !== null) {
       // Sometimes Supabase returns objects with array-like structure
@@ -42,7 +47,7 @@ export function normalizeImageArray(images: any): string[] {
         console.error("Failed to parse object as image array:", e);
       }
     }
-    
+
     // Get unique, non-empty images and validate URLs
     const uniqueImages = Array.from(new Set(
       imagesArray
@@ -50,27 +55,27 @@ export function normalizeImageArray(images: any): string[] {
           if (!img || typeof img !== 'string' || img.trim() === '') {
             return false;
           }
-          
+
           // Basic URL validation (not perfect but catches many issues)
           if (img.startsWith('http://') || img.startsWith('https://')) {
             return true;
           }
-          
+
           // Allow relative URLs
           if (img.startsWith('/')) {
             return true;
           }
-          
+
           // Log invalid URLs for debugging
           console.warn("Filtered out invalid image URL:", img);
           return false;
         })
         .map(img => img.trim())
     ));
-    
+
     console.log("normalizeImageArray input:", images);
     console.log("normalizeImageArray output:", uniqueImages);
-    
+
     return uniqueImages;
   } catch (error) {
     console.error("Error in normalizeImageArray:", error);
@@ -85,41 +90,41 @@ export function normalizeImageArray(images: any): string[] {
  */
 export function getOptimizedImageUrl(
   imageUrl: string | undefined | null,
-  options: { 
-    width?: number; 
+  options: {
+    width?: number;
     height?: number;
     quality?: number;
     placeholder?: string;
   } = {}
 ): string {
-  const { 
+  const {
     width = 800,
     height,
     quality = 80,
-    placeholder = "/images/property-placeholder.jpg" 
+    placeholder = "/images/property-placeholder.jpg"
   } = options;
-  
+
   // Return placeholder for missing images
   if (!imageUrl) return placeholder;
-  
+
   // For Supabase storage URLs, we can add optimization parameters
   if (imageUrl.includes('supabase.co/storage/v1/object/public')) {
     try {
       // Try to construct a URL object
       const url = new URL(imageUrl);
-      
+
       if (!url.searchParams.has('width') && width) {
         url.searchParams.set('width', width.toString());
       }
-      
+
       if (!url.searchParams.has('height') && height) {
         url.searchParams.set('height', height.toString());
       }
-      
+
       if (!url.searchParams.has('quality') && quality) {
         url.searchParams.set('quality', quality.toString());
       }
-      
+
       return url.toString();
     } catch (error) {
       console.error("Invalid URL in getOptimizedImageUrl:", imageUrl);
@@ -127,7 +132,7 @@ export function getOptimizedImageUrl(
       return imageUrl;
     }
   }
-  
+
   // For external URLs, return as is - optimization would require
   // a service like Cloudinary, imgix, etc.
   return imageUrl;
@@ -153,7 +158,7 @@ export function prepareResponsiveImages(
   sizes: number[] = [400, 800, 1200]
 ): { src: string; width: number }[] {
   if (!imageUrl) return [];
-  
+
   return sizes.map(size => ({
     src: getOptimizedImageUrl(imageUrl, { width: size }),
     width: size
@@ -177,10 +182,10 @@ export function generateSrcSet(
   sizes: number[] = [400, 800, 1200]
 ): string {
   if (!imageUrl) return '';
-  
+
   return sizes
-    .map(size => 
+    .map(size =>
       `${getOptimizedImageUrl(imageUrl, { width: size })} ${size}w`
     )
     .join(', ');
-} 
+}

@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS admins (
   email TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'super_admin')),
+  -- role TEXT NOT NULL CHECK (role IN ('admin', 'super_admin')), -- Removed role
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
   last_login TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -13,8 +13,7 @@ CREATE TABLE IF NOT EXISTS admins (
 
 -- Create index for faster lookups
 CREATE INDEX idx_admins_email ON admins(email);
-CREATE INDEX idx_admins_role ON admins(role);
-
+-- CREATE INDEX idx_admins_role ON admins(role); -- Removed role index
 CREATE INDEX idx_admins_status ON admins(status);
 
 -- Enable row level security
@@ -32,11 +31,14 @@ CREATE POLICY "Admins can update their own data"
   USING (auth.uid()::text = id::text)
   WITH CHECK (status = 'active');
 
-CREATE POLICY "Super admins can manage all admins"
-  ON admins FOR ALL
-  USING (auth.uid()::text IN (
-    SELECT id::text FROM admins WHERE role = 'super_admin' AND status = 'active'
-  ));
+-- Removed "Super admins can manage all admins" policy as it depended on role
+-- CREATE POLICY "Super admins can manage all admins"
+--   ON admins FOR ALL
+--   USING (auth.uid()::text IN (
+--     SELECT id::text FROM admins WHERE role = 'super_admin' AND status = 'active'
+--   ));
+-- Consider adding a simpler policy if needed, e.g., allowing any active admin to manage others,
+-- or restricting management based on other criteria if necessary. For now, only self-management is allowed.
 
 -- Create function to securely hash passwords
 CREATE OR REPLACE FUNCTION hash_password(password TEXT)
@@ -70,10 +72,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Insert default super admin (password: changeme123)
+-- Insert default admin (password: changeme123)
 -- In production, you should change this password immediately
-INSERT INTO admins (email, password_hash, name, role)
-VALUES ('admin@example.com', crypt('changeme123', gen_salt('bf')), 'System Admin', 'super_admin')
+INSERT INTO admins (email, password_hash, name) -- Removed role from insert
+VALUES ('admin@example.com', crypt('changeme123', gen_salt('bf')), 'System Admin')
 ON CONFLICT (email) DO NOTHING;
 
 -- Enable realtime for admins table
@@ -83,13 +85,14 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.admins;
 CREATE OR REPLACE FUNCTION get_admin_by_credentials(admin_email TEXT, admin_password TEXT)
 RETURNS TABLE (
   id UUID,
+  id UUID,
   email TEXT,
-  name TEXT,
-  role TEXT
+  name TEXT
+  -- role TEXT -- Removed role from return type
 ) AS $$
 BEGIN
   RETURN QUERY
-  SELECT a.id, a.email
+  SELECT a.id, a.email, a.name -- Added name to select, removed role
   FROM admins a
   WHERE a.email = admin_email
   AND a.password_hash = crypt(admin_password, a.password_hash)
@@ -103,4 +106,4 @@ BEGIN
   AND status = 'active'
   AND password_hash = crypt(admin_password, password_hash);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER; 
+$$ LANGUAGE plpgsql SECURITY DEFINER;

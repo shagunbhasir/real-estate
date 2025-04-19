@@ -47,8 +47,6 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-
-
 function AppRoutes() {
   return (
     <>
@@ -78,22 +76,26 @@ function AppRoutes() {
         <Route
           path="/list-property"
           element={
-            <PrivateRoute>
+            <AdminRoute>
+              {" "}
+              {/* Changed from PrivateRoute to AdminRoute */}
               <PropertyForm />
-            </PrivateRoute>
+            </AdminRoute>
           }
         />
-        
-        {/* Property Edit Route */}
+
+        {/* Property Edit Route - Now protected by AdminRoute */}
         <Route
           path="/property/edit/:propertyId"
           element={
-            <PrivateRoute>
+            <AdminRoute>
+              {" "}
+              {/* Changed from PrivateRoute to AdminRoute */}
               <PropertyFormEditor />
-            </PrivateRoute>
+            </AdminRoute>
           }
         />
-        
+
         {/* Admin Routes */}
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin/signup" element={<AdminSignUpPage />} />
